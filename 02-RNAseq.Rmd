@@ -1,0 +1,824 @@
+---
+title: "RNAseq QC report"
+subtitle: "Quality control metrics of bacterial RNAseq data"
+output:
+  html_document:
+    highlight: tango
+    theme: cosmo
+    toc: yes
+    #css: reports.css
+    #toc_float: yes
+params:
+  project:
+    label: "Project title"
+    value: "Type project title here"
+    input: text
+  date:
+    label: "Date"
+    value: !r Sys.Date()
+    input: date
+  author:
+    label: "Author"
+    value: "Type your name here"
+    input: text
+  samplesheet:
+    label: "Select QC sample sheet if available (use provided excel template)"
+    value:
+    input: file
+  fasta_file:
+    label: "Select genome FASTA file (if re-running, leave empty to skip step)"
+    value:
+    input: file
+  GFF_file:
+    label: "Select GFF file (required, preferably from prokka)"
+    value:
+    input: file
+  fastq_dir:
+    label: "Path to folder with fastq files (required, path relative to current folder)"
+    value: "path/to/fastq"
+    input: text
+  seqtype:
+    label: "Type of sequencing (single or paired-end)"
+    choices: ["SE", "PE"]
+    value: "PE"
+    input: select
+  library_prep:
+    label: "Library prep kit"
+    choices: ["Zymo-Seq RiboFree Total RNA", "NEBNext Ultra II RNA", "Swift"]
+    value: "Zymo-Seq RiboFree Total RNA"
+    input: select
+  sequencer:
+    label: "Sequencer"
+    choices: ["MiSeq", "NextSeq", "NovaSeq"]
+    value: "NextSeq"
+    input: select
+  min_map_qual:
+    label: "Minimum mapping quality for a read to be counted"
+    value: 0
+    input: slider
+    min: 0
+    max: 30
+    step: 1
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = FALSE, 
+                      echo = FALSE, 
+                      warning = FALSE, 
+                      cache = FALSE)
+# add this to your .Rprofile to allow uploading files larger than 5 Mb
+# options(shiny.maxRequestSize=30*1024^2)
+
+#------------------------------------------
+# Initialization, needed for all modules of this report
+#------------------------------------------
+
+# ----------------------------------------
+# Check required packages and install
+#-----------------------------------------
+# CRAN packages
+pckgs <- c("yaml", "dplyr", "purrr", "tidyr", "readr", "stringr", "apexcharter", "DT", "parallel",
+           "kableExtra", "readxl", "data.table", "formattable")
+
+# Bioconductor packages
+bc_pckgs <- c("Rsubread", "qckitfastq")
+
+source("bin/check_install.R")
+check_install(pckgs)
+check_install(bc_pckgs, repo = "Bioconductor")
+
+# ----------------------------------------
+
+
+# this script uses functions which have to be sourced from the R folder:
+
+source("R/process_samplesheet.R")
+source("R/seqkit_stats.R")
+source("R/gc_stats.R")
+source("R/summarize_featureCounts.R")
+
+
+options(width = 121)
+
+header_table <- data.frame(Parameter = c("Project",
+                                         "Author",
+                                         "Date",
+                                         "FASTQ folder",
+                                         #"Genome FASTA file",
+                                         #"GFF/GTF file",
+                                         "Library prep",
+                                         "Sequencer",
+                                         "Sequence type",
+                                         "Minimum map quality"),
+                           Value = c(params$project,
+                                     params$author,
+                                     as.character(params$date),
+                                     params$fastq_dir,
+                                     #basename(params$fasta_file),
+                                     #basename(params$GTF_file),
+                                     params$library_prep,
+                                     params$sequencer,
+                                     params$seqtype,
+                                     params$min_map_qual))
+
+fastqdir <- file.path(getwd(), params$fastq_dir)
+fastqfiles <- list.files(fastqdir, pattern = ".fast(q|q.gz)$", full.names = TRUE)
+resultsdir <- file.path(getwd(), "02-RNAseq-results")
+  if (!dir.exists(resultsdir)) {
+    dir.create(resultsdir)
+  }
+
+
+# stop early if no fastq files found
+  if (length(fastqfiles) == 0) {
+        #
+        stop("No fastq files found in supplied directory")
+  }
+
+# if PE sequencing was selected, get for and rev; otherwise treat all fastq files as SE
+#if (params$seqtype == "PE") {
+  for_files <- fastqfiles[str_detect(fastqfiles, "_R1_")]
+  rev_files <- fastqfiles[str_detect(fastqfiles, "_R2_")]
+#}
+#error here!!!
+
+# stop early also if no GFF file is supplied
+  if(is.null(params$GFF_file)) {
+    stop("Please supply a GFF file")
+  }
+
+# determine plot height for the next figures: 20px per sample?
+myfig.height <- if_else(length(fastqfiles) > 17, true = length(fastqfiles)*30, false = 350)
+
+```
+*Report generated on `r Sys.time()` by `r params$author` on `r Sys.info()[4]`*
+
+
+
+```{r header_table, include=TRUE}
+
+kable(header_table) %>%
+  kable_styling(bootstrap_options = c("condensed", "hover"),
+                full_width = T,
+                position = "left") %>%
+  column_spec(1, bold = T) %>%
+  column_spec(1:2, background = "#e6f0ff") %>%
+  row_spec(0, color = "white")
+```
+
+
+***
+
+### Description of the pipeline
+
+This pipeline performs QC analysis of RNA-seq data, using the `Rsubread` package in `R` as well as some custom functions (see below for full list of programs used and their versions).
+
+
+The analysis includes
+
+1. Sample input quality control (optional)
+2. Common read statistics (`seqkit`, `qckitfastq`, `GNU parallel`)
+3. Generation of an index from a supplied fasta file (`Rsubread`)
+4. Align fastq files to the genome (`Rsubread`)
+5. Read summarization - feature counts. Summary of the counts per gene_biotype is provided (`Rsubread`)
+6. RSeQC modules -
+
+
+***
+
+### Sample input quality control
+
+
+<details>
+  <summary>Show table with sample measurements at NCCT</summary>
+
+```{r sample_form, include=TRUE}
+# readsamplesheet and formatsamplesheet are defined in R/process_samplesheet.R
+
+  if (length(params$samplesheet) == 0) {
+    paste("No QC sample sheet provided")
+  } else {
+    samplesheet <- readsamplesheet(params$samplesheet)
+    formatsamplesheet(samplesheet)
+  }
+```
+</details>
+
+***
+
+### Reads statistics
+
+A total of **`r length(fastqfiles)`** FASTQ files were processed.
+You can copy/download the table using the buttons below. A copy of the table (as a tab-selimited file) is also available under ` `r paste(basename(resultsdir), "/reads_statistics.tsv", sep ="")` `.
+
+```{r read_quality, include=TRUE}
+# seqkit_stats is defined in R/seqkit_stats.R
+
+read_qual <- seqkit_stats(fastqfiles)
+readr::write_delim(read_qual, path = file.path(resultsdir, "reads_statistics.tsv"))
+
+read_qual %>%
+  mutate(file = basename(file)) %>%
+  dplyr::select(file,  num_seqs,`Q20(%)`, `Q30(%)`) %>%
+
+  DT::datatable(filter = "top",
+                caption = paste("FASTQ quality metrics. Total output is",
+                                format(sum(read_qual$sum_len)/1e6, digits = 0, big.mark = ","),
+                                "M bases and",
+                                format(sum(read_qual$num_seqs)/1e6, digits = 0, big.mark = ","),
+                                "M reads."),
+                extensions = c('Scroller', 'Buttons'),
+                options = list(dom= "Btp", deferRender = TRUE,
+                               scrollY = 400,scroller = TRUE, buttons = c('copy', 'csv', 'excel')),
+                style = 'bootstrap',
+                class = 'table-hover table-condensed') %>%
+  formatStyle('num_seqs', background = styleColorBar(read_qual$num_seqs, "lightgreen")) %>%
+  formatStyle(c('Q20(%)', 'Q30(%)'), color = styleInterval(c(80, 90), c("red", "orange", "green"))) %>%
+  formatRound('num_seqs', digits = 0, mark = ",")
+
+```
+
+
+**GC-content of reads** - hover over the read names in the legend to see the trace. Traces are colored according to the peak GC-content of the sample. The raw GC content data used for the plots can be found in the ` `r basename(resultsdir)` ` folder.
+
+
+```{r gc_content}
+# make gc plots for the for_files only
+# gc_stats is defined in R/gc_stats.R
+
+
+gcdf <- gc_stats(for_files)
+readr::write_delim(gcdf, path = file.path(resultsdir, "gc_content_statistics.tsv"))
+
+# make also per sample df?
+# gcdf %>% mutate(sample = stringr::str_remove(readname, "_R._001.fastq.gz"))
+
+# prepare colors for the plots
+colfun <- scales::colour_ramp(c("lightgreen", "green", "orange","red", "violet"))
+gcdf2 <- gcdf %>%
+  group_by(readname) %>%
+  slice(which.max(counts)) %>%
+  mutate(mycolor = colfun(mids))
+
+```
+
+
+
+```{r, include=TRUE}
+
+# GC plot counts
+# gc_stats_apexplot() is defined in R/gc_stats.r
+
+gcdf %>%
+  gc_stats_apexplot(x = mids, y = counts, group = readname, width = "800", height = "400") %>%
+  ax_colors(gcdf2$mycolor) %>%
+  ax_legend(position = "right")
+
+```
+
+
+
+
+```{r, include=TRUE}
+
+# GC plot ax_plot percents
+# gc_stats_apexplot() is defined in R/gc_stats.r
+gcdf %>%
+  gc_stats_apexplot(x = mids, y = percents, group = readname, width = "800", height = "400") %>%
+  ax_colors(gcdf2$mycolor) %>%
+  ax_legend(position = "right")
+
+```
+
+
+***
+
+### Build genome index
+
+Using the supplied genome fasta file, this step generates the index files needed for alignment by `Rsubread::align()`.
+
+```{r step01_index}
+indexdir <- file.path(resultsdir, "01_index_files")
+indexfile <- file.path(indexdir, "reference_index.files")
+
+  if (!is.null(params$fasta_file)) {
+    # check if valid fasta is supplied ?
+
+    unlink(indexdir, recursive = TRUE, force = TRUE)
+    dir.create(indexdir)
+    setwd(indexdir)
+    Rsubread::buildindex(basename = "reference_index",
+                        reference = params$fasta_file)
+    setwd("../")
+    indexresult <- paste("The fasta file has",
+                         length(count.fields(indexfile)),
+                         "records. The first header is \n",
+                         str_extract(readLines(indexfile, n = 1), "^\\w+"), "\n",
+                         "Index built OK!")
+  } else if (file.exists(indexfile)) {
+      indexresult <- paste("Index exists already, and has",
+                          length(count.fields(indexfile)),
+                          "headers.")
+  } else {
+
+    stop("No fasta file selected, and no index directory present! Aborting..")
+}
+
+
+```
+
+
+```
+`r indexresult`
+```
+
+
+***
+
+### Align reads to genome
+
+Alignment of reads to the genome was performed with `Rsubread::align()`.
+
+
+
+```{r step3_align}
+# In this step, the fastq files found in the supplied directory are aligned to the reference index which was built in step 1.
+# In case this step was performed before, it is skipped.
+# The BAM files produced are found in the same folder as the fastq files.
+
+
+bamfiles <- list.files(fastqdir, pattern = "subread.BAM$", full.names = TRUE)
+
+  if (!is.null(params$fastq_dir)) {
+
+    # first check if there are bams already
+      if (length(bamfiles) > 0) {
+        alignresult <- paste(length(bamfiles),
+                             "BAM files already present, step was skipped")
+        # if align was performed before, align_summary.tsv should be present in the fastq folder
+        align_summary <- readRDS(file.path(fastqdir, "align_summary.rds"))
+
+      } else if ((length(fastqfiles) == 0)) {
+        # no fastq found in fastqdir
+        stop("No fastq files found in supplied directory")
+
+      } else if (length(fastqfiles) > 0) {
+        # do align
+        align_summary <- Rsubread::align(index = file.path(indexdir, "reference_index"),
+                                         readfile1 = if (params$seqtype == "PE") {for_files} else {fastqfiles},
+                                         readfile2 = if (params$seqtype == "PE") {rev_files} else {NULL},
+                                         type = "rna",
+                                         nthreads = parallel::detectCores())
+        #if performing align() for the first time, assign bamfiles again and save rds
+        saveRDS(align_summary, file = file.path(fastqdir, "align_summary.rds"))
+        bamfiles <- list.files(fastqdir, pattern = "BAM$", full.names = TRUE)
+
+        alignresult <- paste(length(fastqfiles),
+                             "fastq files were found, performing alignment.")
+    }
+  } else {
+    stop("No fastq directory specified, or no fastq files were found! Aborting...")
+  }
+
+```
+
+
+```
+`r alignresult`
+
+```
+
+```{r}
+total_fragments <- sum(align_summary[1,])
+mapped_fragments <- sum(align_summary[2,])
+mapped_fragments_percent <- mapped_fragments/total_fragments*100
+unique_mapped_fragments <- sum(align_summary[3,])
+unique_mapped_fragments_percentoftotal <- unique_mapped_fragments/total_fragments*100
+unique_mapped_fragments_percentofmapped <- unique_mapped_fragments/mapped_fragments*100
+
+
+```
+
+The `r params$seqtype` dataset has **`r format(sum(read_qual$num_seqs)/1e6, digits = 2, big.mark = ",")`M** reads with **`r format(sum(read_qual$sum_len)/1e6, digits = 0, big.mark = ",")`M** bases.   
+From a total of   
+**`r format(total_fragments, digits = 0, big.mark = ",")`** fragments   
+**`r format(mapped_fragments, digits=0, big.mark=",")` (`r format(mapped_fragments_percent, nsmall = 2, digits = 2)` %)**
+could be mapped to the genome, and   
+**`r format(unique_mapped_fragments, digits = 0, big.mark = ",")` (`r format(unique_mapped_fragments_percentoftotal, nsmall = 2, digits = 2)` %)**
+could be mapped uniquely to the genome.    
+More detailed data about the mapping quality of each library can be found in the ` `r params$fastq_dir` ` folder.
+
+
+```{r align_summary}
+align_summary_table <- t(align_summary) %>%
+  as_tibble(rownames = "Sample") %>%
+  dplyr::select(c(1,4:6)) %>%
+  mutate(Sample = str_remove(string = Sample,
+                             pattern = ".R(1|2).001.*fastq.gz.subread.BAM"))
+
+# alignment plots initialisation, no plotting here
+align_plot <- align_summary_table %>%
+    pivot_longer(-Sample, names_to = "mapping", values_to = "count") %>%
+    apexcharter::apex(type = "bar", mapping = aes(x = Sample, y = count, fill = mapping),
+                      height = myfig.height)
+
+
+
+
+
+```
+
+
+<div class = "col-md-6">
+```{r, include=TRUE}
+# alignment plot counts
+align_plot %>%
+  ax_chart(stacked = TRUE, stackType = "normal") %>%
+  ax_labs(title = paste("Mapping quality of the alignments, read counts"),
+          subtitle = paste("Alignments performed with ", params$seqtype, "reads found in", params$fastq_dir))
+
+
+```
+</div>
+
+<div class = "col-md-6">
+```{r, include=TRUE}
+# alignment plot percent
+align_plot %>%
+  ax_chart(stacked = TRUE, stackType = "100%") %>%
+  ax_labs(title = paste("Mapping quality of the alignments, percent"),
+          subtitle = paste("Alignments performed with ", params$seqtype, "reads found in", params$fastq_dir))
+
+
+```
+</div>
+
+
+***
+
+### Read summarization - feature counts
+
+In this step the mapped reads (or fragments in case of PE) are assigned to genomic features, e.g. genes. The GFF file is converted to SAF and the gene_biotype attribute is added (currently only CDS, rRNA, tRNA and tmRNA). The used minimum mapping quality score that a read must have in order to be counted is **`r params$min_map_qual`**. The output of featureCounts - `02-RNAseq-results/featureCounts.rds` can be used as a count matrix input to further DGE analysis programs, e.g. `DESeq2` and `edgeR`. An example of how to use this output in `DESeq2` can be found [here](http://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#count-matrix-input).
+
+```{r step_featureCounts}
+# using the R/prokka_gff2saf script for prokka generated gff files:
+# the params provided GFF is converted to SAF (including gene_biotype) and written on disk
+# 
+# the script works also for Refseq gff files
+
+system2(command = "R/prokka_gff2saf.sh", 
+        args = params$GFF_file, 
+        stdout = file.path(resultsdir, "featureCounts_annotation.saf")
+        )
+
+saffile <- file.path(resultsdir, "featureCounts_annotation.saf")
+# 
+
+fc <- featureCounts(files = bamfiles,
+  annot.ext = saffile,
+  isGTFAnnotationFile = FALSE,
+  #GTF.featureType = params$GTF_feature_type,
+  #GTF.attrType = params$GTF_attr_type,
+  #GTF.attrType.extra = "gene_biotype",
+  useMetaFeatures = TRUE,
+  isPairedEnd = if (params$seqtype == "PE") {TRUE} else {FALSE},
+  minMQS = params$min_map_qual, #important?
+  nthreads = 6)
+
+saveRDS(fc, file = file.path(resultsdir, "featureCounts.rds"))
+
+# note this!! #####################
+fc_stats <- fc$stat[,-1] %>%
+  t() %>%
+  as_tibble() %>%
+  rename_all(.funs = ~fc$stat[,1]) %>%
+  mutate(Sample = fc$targets) %>%
+  mutate(Sample = str_remove(string = Sample,
+                             pattern = ".R(1|2).001.*fastq.gz.subread.BAM")) %>%
+  dplyr::select_if(~ !is.numeric(.) || sum(.) != 0 ) # this removes vars with only 0s, but keeps non-numeric vars
+####################################
+
+
+
+fc_summary_table <- summarize_featureCounts_saf(fc, saffile)
+
+```
+
+
+```
+A total of `r  length(fc$targets)` samples were processed by featureCounts.
+```
+TODO:Table with asignments of reads to features for all reads
+
+
+```{r}
+# this junk just initializes the two bar plots that follow
+
+apexplot_features <- fc_stats %>%
+  pivot_longer(cols = -Sample, names_to = "assignment", values_to = "counts") %>%
+  apex(type = "bar", mapping = aes(x = Sample, y = counts, fill = assignment), height = myfig.height)
+
+
+apexplot_genebiotypes <- fc_summary_table %>%
+  pivot_longer(cols = -gene_biotype, names_to = "sample", values_to = "counts") %>%
+  apex(type = "bar", mapping = aes(x = sample, y = counts, fill = gene_biotype), height = myfig.height)
+
+
+```
+
+
+<div class = "col-md-6">
+```{r, include=TRUE}
+
+apexplot_features %>%
+  ax_chart(stacked = TRUE) %>%
+  ax_labs(title = "Assignments of reads to features, read counts",
+          subtitle = paste("Assignments performed with minimum map quality of", params$min_map_qual))
+
+```
+</div>
+
+<div class = "col-md-6">
+```{r, include=TRUE}
+
+apexplot_features %>%
+  ax_chart(stacked = TRUE, stackType = "100%") %>%
+  ax_labs(title = "Assignments of reads to features, percent",
+          subtitle = paste("Assignments performed with minimum map quality of", params$min_map_qual))
+
+```
+</div>
+
+<div class = "col-md-6">
+```{r, include=TRUE}
+apexplot_genebiotypes %>%
+  ax_chart(stacked = TRUE, stackType = "normal") %>%
+  ax_labs(title = "Assignments of reads to gene biotypes, read counts",
+          subtitle = paste("Assignments performed with minimum map quality of", params$min_map_qual))
+
+```
+</div>
+
+<div class = "col-md-6">
+```{r, include=TRUE}
+apexplot_genebiotypes %>%
+  ax_chart(stacked = TRUE, stackType = "100%") %>%
+  ax_labs(title = "Assignments of reads to gene biotypes, percent",
+          subtitle = paste("Assignments performed with minimum map quality of", params$min_map_qual))
+
+```
+</div>
+
+
+
+***
+
+### RSeQC modules
+
+#### Duplication rate
+
+In this [RSeQC module](http://rseqc.sourceforge.net/#read-duplication-py), two methods of counting read duplication are used: sequence- and mapping-based.
+
+
+```{r RSeQC read duplication}
+# without the div above there are problems with the charts upstream on the page!
+
+source("R/rseqc_read_duplication.R")
+
+  duprate_dir <- file.path(resultsdir, "rseqc_duprate")
+  
+  if (dir.exists(duprate_dir)) {
+    unlink(duprate_dir, recursive = TRUE, force = TRUE)
+  }
+  dir.create(duprate_dir)
+  
+  ##############################################################
+  # execute read_duplication.py, output files are in duprate_dir
+  rseqc_duprate(bamfiles, duprate_dir)
+  ##############################################################
+  
+  ##############################################################
+  # get the data in R
+  dupratedf <- rseqc_duprate_getdf(duprate_dir)
+  ##############################################################
+  
+  dupratedf_mod <- dupratedf %>% 
+    mutate(samplename = str_remove(flnm, pattern = "_R(1|2)_001.*"), 
+           duptype = str_extract(flnm, "(?<=BAM.)seq|(?<=BAM.)pos"),
+           Sample = paste(samplename, duptype)) %>%
+    group_by(flnm, duptype) %>% 
+    mutate(fraction = UniqReadNumber/sum(UniqReadNumber))
+  
+```
+  
+  
+  
+```{r, RSeQC read duplication plots}
+  # plot initialization only
+duprate_plot <- dupratedf_mod %>%
+    apex(type = "heatmap", 
+       mapping = aes(Occurrence, Sample, group = duptype, 
+                     fill = log10(UniqReadNumber)), 
+       height = myfig.height) %>%  
+    ax_colors(c("#3498DB", "#2ECC71")) %>% 
+    ax_dataLabels(enabled = FALSE) %>% 
+    ax_grid(yaxis = list(lines = list(show = FALSE))) %>%
+    ax_xaxis(max=400) %>%
+    # here the serious stuff
+    ax_tooltip(followCursor = FALSE, 
+               fillSeriesColor = TRUE,
+               y = list(formatter = 
+                          htmlwidgets::JS(
+                            "function(value) {return Math.round(Math.pow(10,value)) + ' reads';}"
+                          )
+                        ),
+               x = list(show = FALSE, formatter =
+                          htmlwidgets::JS(
+                           "function(value) {return value + ' occurrences';}" 
+                          )
+                        )
+               )
+
+
+```
+
+
+<div class = "col-md-12">
+```{r, include=TRUE}
+duprate_plot %>%
+  ax_labs(title = "Reads duplication rate based on sequence (seq) and mapping (pos)", 
+          subtitle = "The color intensity is (log10) proportional to the reads counts, occurence is truncated at 400",
+            x = "Occurrence of read")
+
+```
+</div>
+
+
+The same duplication rate data as above, showing only occurrences 1 to 10.
+
+```{r, include=TRUE}
+dupratedf_mod %>% 
+    ungroup() %>% 
+    filter(Occurrence<=10) %>% 
+    dplyr::select(Sample, Occurrence, fraction) %>% 
+    mutate(fraction = formattable::percent(fraction)) %>%
+    mutate(fraction = formattable::color_bar("lightgreen")(fraction)) %>% #note that color_bar() returns a function
+    tidyr::pivot_wider(names_from = Occurrence, values_from = fraction) %>%
+    kableExtra::kable(escape = FALSE, align = 'lrrrrrrrrrr') %>% 
+    kable_styling(full_width = TRUE, bootstrap_options = "condensed") %>%
+    add_header_above(c("", "Occurrence" = 10)) %>%
+    scroll_box(height = "600px", fixed_thead = TRUE)
+    
+
+```
+
+***
+
+#### Read strandness  
+
+This [module](http://rseqc.sourceforge.net/#infer-experiment-py) is used to “guess” how RNA-seq sequencing were configured, particulary how reads were stranded for strand-specific RNAseq data. It compares the “strandness of reads” with the “standness of transcripts”. If a stranded RNAseq kit has been used, it is expected that most of the reads map to the respective strand. This information can be used to infer the amount of genomic DNA left in the RNA sample.
+
+```{r, Read strandness}
+# prepares files needed, executes infer_experiment.py and reads data to df
+# source needed functions
+source("R/rseqc_read_strandness.R")
+
+  gtffile <- file.path(resultsdir, "annotation.gtf")
+  bedfile <- file.path(resultsdir, "annotation.bed")
+  rseq_strand_outdir <- file.path(resultsdir, "rseqc_strandnes")
+  
+  # Make GTF and BED files and write them to results
+    if(
+      any(file.exists(c(gtffile, bedfile, rseq_strand_outdir)))
+      ) {
+    unlink(gtffile, force = TRUE)
+    unlink(bedfile, force = TRUE)
+    unlink(rseq_strand_outdir, recursive = TRUE, force = TRUE)
+    }
+  
+  system2(command = "R/prokka_gff2gtf.sh", 
+          args = c("-e", "-i", params$GFF_file), 
+          stdout = gtffile
+  )
+  
+  # this is a perl script, written by 
+  system2(command = "R/gtf2bed", 
+          args = c(gtffile), 
+          stdout = bedfile
+  )
+  
+  
+# execute infer_experiment.py, using the helper functions defined in R/rseqc_read_strandness.R
+  # previous existing outdir was deleted above
+  dir.create(rseq_strand_outdir)
+  rseqc_strand(bedfile = bedfile, bamfiles = bamfiles, outdir = rseq_strand_outdir) # writes output to this dir
+  
+  strandness_df <- rseqc_strand_getdf(rseq_strand_outdir)
+  
+```
+
+
+```{r, Read strandness plot, include=TRUE}
+strandness_df %>%
+  pivot_longer(cols = -c(filename, reads_sampled), names_to = "type", values_to = "fraction") %>% 
+  apex(type = "bar", 
+       mapping = aes(x = filename, y = fraction, fill = type), 
+       height = myfig.height) %>% 
+  ax_chart(stacked = TRUE, stackType = "normal") %>%
+  ax_yaxis(max = 1) %>% # a bug in apex displays the plot incorrectly if this is not set
+  ax_labs(title = "Read strandness",
+          subtitle = paste("Read strandness determined with infer_experiment.py from RSeQC"))
+
+```
+
+***
+
+#### Genebody coverage   
+
+This [module](http://rseqc.sourceforge.net/#genebody-coverage-py) calculates the RNAseq reads coverage along the genes. For "normal" RNAseq it is expected that the coverage is uniform, e.g. there is no 5' or 3' bias, and decreases towards the 5' and 3' ends. Note that, for bacterial genomes, the gene boundaries are often not well defined (usually the coding sequences are predicted, not the transcripts) and the coding sequences are regarded as a "genes". As a consequence, the genebody coverage plot may not look as good as for model organisms with well annotated genomes. 
+
+```{r genebody coverage}
+# The module requires sorted and indexed bam files, so first this has to be done:
+source("R/samtools_si.R")
+
+parallel::mclapply(bamfiles, samtools_sort)
+
+bamfiles_sorted <- list.files(fastqdir, pattern = "sorted.bam$", full.names = TRUE)
+parallel::mclapply(bamfiles_sorted, samtools_index)
+
+# after this, just run geneBody_coverage.py on the sorted (and indexed) bams
+# this is also slow, so use parallel
+
+# define output folder
+genebody_outdir <- file.path("02-RNAseq-results/", "genebody_coverage")
+if(dir.exists(genebody_outdir)) {
+  unlink(genebody_outdir, force = TRUE, recursive = TRUE)
+  dir.create(genebody_outdir)
+}
+
+
+genecoverage <- function(bamfile, bedfile) {
+  system2(command = "geneBody_coverage.py", 
+          args = c("-i", bamfile, "-r", bedfile, "-o", basename(bamfile), sep = "")
+          )
+}
+
+parallel::mclapply(bamfiles_sorted, genecoverage, bedfile)
+
+# have to move the files manualy here
+genebody_outfiles <- list.files(".", pattern = "geneBodyCoverage")
+system2("mv", args = c(genebody_outfiles, genebody_outdir))
+
+# -----------------------------------------------
+# parsing output og geneBody_coverage.py in R
+# use the txt files to get the values 
+genebody_outfiles_txt <- list.files(path = genebody_outdir, pattern = "geneBodyCoverage.txt$", full.names = TRUE)
+
+# read one geneBodyCoverage.txt file and return a df
+read_genebody <- function(x) {
+tibble(filename = basename(x) %>% str_extract(pattern = "^\\w+"),
+       counts = fread(x, skip = 1, nrows = 1, drop = 1) %>% t() %>% as.numeric(), 
+       percentile_rank = percent_rank(counts),
+       percentile = 1:100) 
+}
+
+genebody_df <- map_dfr(genebody_outfiles_txt, read_genebody)
+#---------------------------------------------------------------
+
+
+```
+
+
+```{r, gene body coverage plot, include=TRUE}
+genebody_df %>% 
+  apex(mapping = aes(percentile, percentile_rank, group = filename), type = "line") %>%
+  ax_yaxis(decimalsInFloat = 2, max = 1) %>% 
+  ax_xaxis(min = 0, tickAmount = 5) %>% 
+  ax_stroke(width = 1) %>% 
+  ax_legend(position = "right") %>% 
+  ax_tooltip(shared = FALSE) %>%
+  ax_colors("#feb24c") %>% 
+  ax_fill(
+    type = "gradient",
+    gradient = list(
+      gradientToColors = rep(list("#f03b20"), length(genebody_outfiles_txt)),
+      #shadeIntensity = 1,
+      type = "vertical",
+      stops = c(0, 50, 100)
+    )
+  )
+
+```
+
+
+***
+
+### Software versions
+
+```{r, include=TRUE}
+
+packages <- c("Rsubread", "dplyr", "purrr", "tidyr", "readr", "stringr", "apexcharter", "DT", "parallel", "qckitfastq", "kableExtra", "readxl", "data.table")
+sessioninfo::package_info(packages, dependencies = FALSE)
+
+```
