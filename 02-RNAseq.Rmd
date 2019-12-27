@@ -1,6 +1,6 @@
 ---
 title: "RNAseq QC report"
-subtitle: "Quality control metrics of bacterial RNAseq data"
+subtitle: "Quality control metrics of (bacterial) RNAseq data"
 output:
   html_document:
     highlight: tango
