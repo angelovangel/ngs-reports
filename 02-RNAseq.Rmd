@@ -93,10 +93,10 @@ check_install(bc_pckgs, repo = "Bioconductor")
 
 # this script uses functions which have to be sourced from the R folder:
 
-source("R/process_samplesheet.R")
-source("R/seqkit_stats.R")
-source("R/gc_stats.R")
-source("R/summarize_featureCounts.R")
+source("bin/process_samplesheet.R")
+source("bin/seqkit_stats.R")
+source("bin/gc_stats.R")
+source("bin/summarize_featureCounts.R")
 
 
 options(width = 121)
@@ -467,7 +467,7 @@ In this step the mapped reads (or fragments in case of PE) are assigned to genom
 # 
 # the script works also for Refseq gff files
 
-system2(command = "R/prokka_gff2saf.sh", 
+system2(command = "bin/prokka_gff2saf.sh", 
         args = params$GFF_file, 
         stdout = file.path(resultsdir, "featureCounts_annotation.saf")
         )
@@ -584,7 +584,7 @@ In this [RSeQC module](http://rseqc.sourceforge.net/#read-duplication-py), two m
 ```{r RSeQC read duplication}
 # without the div above there are problems with the charts upstream on the page!
 
-source("R/rseqc_read_duplication.R")
+source("bin/rseqc_read_duplication.R")
 
   duprate_dir <- file.path(resultsdir, "rseqc_duprate")
   
@@ -682,7 +682,7 @@ This [module](http://rseqc.sourceforge.net/#infer-experiment-py) is used to “g
 ```{r, Read strandness}
 # prepares files needed, executes infer_experiment.py and reads data to df
 # source needed functions
-source("R/rseqc_read_strandness.R")
+source("bin/rseqc_read_strandness.R")
 
   gtffile <- file.path(resultsdir, "annotation.gtf")
   bedfile <- file.path(resultsdir, "annotation.bed")
@@ -697,13 +697,13 @@ source("R/rseqc_read_strandness.R")
     unlink(rseq_strand_outdir, recursive = TRUE, force = TRUE)
     }
   
-  system2(command = "R/prokka_gff2gtf.sh", 
+  system2(command = "bin/prokka_gff2gtf.sh", 
           args = c("-e", "-i", params$GFF_file), 
           stdout = gtffile
   )
   
   # this is a perl script, written by 
-  system2(command = "R/gtf2bed", 
+  system2(command = "bin/gtf2bed", 
           args = c(gtffile), 
           stdout = bedfile
   )
@@ -740,7 +740,7 @@ This [module](http://rseqc.sourceforge.net/#genebody-coverage-py) calculates the
 
 ```{r genebody coverage}
 # The module requires sorted and indexed bam files, so first this has to be done:
-source("R/samtools_si.R")
+source("bin/samtools_si.R")
 
 parallel::mclapply(bamfiles, samtools_sort)
 
@@ -754,8 +754,8 @@ parallel::mclapply(bamfiles_sorted, samtools_index)
 genebody_outdir <- file.path("02-RNAseq-results/", "genebody_coverage")
 if(dir.exists(genebody_outdir)) {
   unlink(genebody_outdir, force = TRUE, recursive = TRUE)
-  dir.create(genebody_outdir)
 }
+dir.create(genebody_outdir)
 
 
 genecoverage <- function(bamfile, bedfile) {
