@@ -105,8 +105,6 @@ header_table <- data.frame(Parameter = c("Project",
                                          "Author",
                                          "Date",
                                          "FASTQ folder",
-                                         #"Genome FASTA file",
-                                         #"GFF/GTF file",
                                          "Library prep",
                                          "Sequencer",
                                          "Sequence type",
@@ -115,8 +113,6 @@ header_table <- data.frame(Parameter = c("Project",
                                      params$author,
                                      as.character(params$date),
                                      params$fastq_dir,
-                                     #basename(params$fasta_file),
-                                     #basename(params$GTF_file),
                                      params$library_prep,
                                      params$sequencer,
                                      params$seqtype,
@@ -574,7 +570,7 @@ apexplot_genebiotypes %>%
 
 ***
 
-### RSeQC modules
+### RSeQC and Qualimap modules
 
 #### Duplication rate
 
@@ -645,7 +641,8 @@ duprate_plot <- dupratedf_mod %>%
 
 
 <div class = "col-md-12">
-```{r, include=TRUE}
+```{r, include=FALSE} 
+# not included for now
 duprate_plot %>%
   ax_labs(title = "Reads duplication rate based on sequence (seq) and mapping (pos)", 
           subtitle = "The color intensity is (log10) proportional to the reads counts, occurence is truncated at 400",
@@ -677,7 +674,7 @@ dupratedf_mod %>%
 
 #### Read strandness  
 
-This [module](http://rseqc.sourceforge.net/#infer-experiment-py) is used to “guess” how RNA-seq sequencing were configured, particulary how reads were stranded for strand-specific RNAseq data. It compares the “strandness of reads” with the “standness of transcripts”. If a stranded RNAseq kit has been used, it is expected that most of the reads map to the respective strand. This information can be used to infer the amount of genomic DNA left in the RNA sample.
+This [RSeQC module](http://rseqc.sourceforge.net/#infer-experiment-py) is used to “guess” how RNA-seq sequencing were configured, particulary how reads were stranded for strand-specific RNAseq data. It compares the “strandness of reads” with the “standness of transcripts”. If a stranded RNAseq kit has been used, it is expected that most of the reads map to the respective strand. This information can be used to infer the amount of genomic DNA left in the RNA sample.
 
 ```{r, Read strandness}
 # prepares files needed, executes infer_experiment.py and reads data to df
@@ -736,7 +733,7 @@ strandness_df %>%
 
 #### Genebody coverage   
 
-This [module](http://rseqc.sourceforge.net/#genebody-coverage-py) calculates the RNAseq reads coverage along the genes. For "normal" RNAseq it is expected that the coverage is uniform, e.g. there is no 5' or 3' bias, and decreases towards the 5' and 3' ends. Note that, for bacterial genomes, the gene boundaries are often not well defined (usually the coding sequences are predicted, not the transcripts) and the coding sequences are regarded as a "genes". As a consequence, the genebody coverage plot may not look as good as for model organisms with well annotated genomes. 
+The RNAseq reads coverage along the genes is calculated using [Qualimap](). For "normal" RNAseq it is expected that the coverage is uniform, e.g. there is no 5' or 3' bias, and decreases towards the 5' and 3' ends. Note that, for bacterial genomes, the gene boundaries are often not well defined (usually the coding sequences are predicted, not the transcripts) and the coding sequences are regarded as a "genes". As a consequence, the genebody coverage plot may not look as good as for model organisms with well annotated genomes. 
 
 ```{r genebody coverage}
 # The module requires sorted and indexed bam files, so first this has to be done:
@@ -771,7 +768,7 @@ genebody_outfiles <- list.files(".", pattern = "geneBodyCoverage")
 system2("mv", args = c(genebody_outfiles, genebody_outdir))
 
 # -----------------------------------------------
-# parsing output og geneBody_coverage.py in R
+# parsing output of geneBody_coverage.py in R
 # use the txt files to get the values 
 genebody_outfiles_txt <- list.files(path = genebody_outdir, pattern = "geneBodyCoverage.txt$", full.names = TRUE)
 
@@ -779,7 +776,7 @@ genebody_outfiles_txt <- list.files(path = genebody_outdir, pattern = "geneBodyC
 read_genebody <- function(x) {
 tibble(filename = basename(x) %>% str_extract(pattern = "^\\w+"),
        counts = fread(x, skip = 1, nrows = 1, drop = 1) %>% t() %>% as.numeric(), 
-       percentile_rank = percent_rank(counts),
+       percentile_rank = percent_rank(counts), #correct?
        percentile = 1:100) 
 }
 
