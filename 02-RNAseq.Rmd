@@ -397,7 +397,7 @@ bamfiles <- list.files(fastqdir, pattern = "subread.BAM$", full.names = TRUE)
           )
         }
         # because performing align() for the first time, assign bamfiles again and save rds
-      
+        
         saveRDS(align_summary, file = file.path(fastqdir, "align_summary.rds"))
         bamfiles <- list.files(fastqdir, pattern = "BAM$", full.names = TRUE)
 
@@ -417,6 +417,9 @@ bamfiles <- list.files(fastqdir, pattern = "subread.BAM$", full.names = TRUE)
 ```
 
 ```{r}
+align_summary_names_SE <- c("Total_reads", "Mapped_reads", "Uniquely_mapped_reads","Multi_mapping_reads", "Unmapped_reads", "Indels")
+align_summary_names_PE <- c("Total_fragments", "Mapped_fragments", "Uniquely_mapped_fragments", "Multi_mapping_fragments", "Unmapped_fragments", "Properly_paired_fragments", "Singleton_fragments", "More_than_one_chr_fragments", "Unexpected_strandness_fragments", "Unexpected_template_length", "Inversed_mapping"  )
+
 total_fragments <- sum(align_summary[1,])
 mapped_fragments <- sum(align_summary[2,])
 mapped_fragments_percent <- mapped_fragments/total_fragments*100
