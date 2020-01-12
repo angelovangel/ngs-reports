@@ -397,7 +397,7 @@ bamfiles <- list.files(fastqdir, pattern = "subread.BAM$", full.names = TRUE)
           )
         }
         # because performing align() for the first time, assign bamfiles again and save rds
-        
+        #
         saveRDS(align_summary, file = file.path(fastqdir, "align_summary.rds"))
         bamfiles <- list.files(fastqdir, pattern = "BAM$", full.names = TRUE)
 
