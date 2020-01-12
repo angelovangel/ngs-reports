@@ -6,7 +6,7 @@
 # output - a dataframe with file names and GC content data per file
 # 
 # 
-
+require(parallel)
 require(qckitfastq)
 require(dplyr)
 require(purrr)

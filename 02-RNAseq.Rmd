@@ -70,6 +70,11 @@ knitr::opts_chunk$set(include = FALSE,
 # add this to your .Rprofile to allow uploading files larger than 5 Mb
 # options(shiny.maxRequestSize=30*1024^2)
 
+# add the correct bash $PATH to the R session, depending on the system R may not have the correct $PATH
+# touch ~/.Renviron 
+# R_PATH="PATH=$PATH"  
+# echo $R_PATH >  ~/.Renviron
+
 #------------------------------------------
 # Initialization, needed for all modules of this report
 #------------------------------------------
@@ -105,8 +110,6 @@ header_table <- data.frame(Parameter = c("Project",
                                          "Author",
                                          "Date",
                                          "FASTQ folder",
-                                         #"Genome FASTA file",
-                                         #"GFF/GTF file",
                                          "Library prep",
                                          "Sequencer",
                                          "Sequence type",
@@ -115,8 +118,6 @@ header_table <- data.frame(Parameter = c("Project",
                                      params$author,
                                      as.character(params$date),
                                      params$fastq_dir,
-                                     #basename(params$fasta_file),
-                                     #basename(params$GTF_file),
                                      params$library_prep,
                                      params$sequencer,
                                      params$seqtype,
@@ -136,12 +137,16 @@ resultsdir <- file.path(getwd(), "02-RNAseq-results")
         stop("No fastq files found in supplied directory")
   }
 
-# if PE sequencing was selected, get for and rev; otherwise treat all fastq files as SE
-#if (params$seqtype == "PE") {
-  for_files <- fastqfiles[str_detect(fastqfiles, "_R1_")]
-  rev_files <- fastqfiles[str_detect(fastqfiles, "_R2_")]
-#}
-#error here!!!
+# if PE sequencing was selected, get for and rev
+#error here if length(for_files) != length(rev_files)!!!
+
+ for_files <- fastqfiles[str_detect(fastqfiles, "_R1_")]
+ rev_files <- fastqfiles[str_detect(fastqfiles, "_R2_")]
+ if (params$seqtype == "PE" & length(for_files) != length(rev_files)) {
+  stop("PE was selected but the number of R1 files is not equal to the number of R2 files, 
+       check your fastq folder")
+ }
+
 
 # stop early also if no GFF file is supplied
   if(is.null(params$GFF_file)) {
@@ -347,6 +352,8 @@ Alignment of reads to the genome was performed with `Rsubread::align()`.
 # In case this step was performed before, it is skipped.
 # The BAM files produced are found in the same folder as the fastq files.
 
+align_summary_names_SE <- c("Total_reads", "Mapped_reads", "Uniquely_mapped_reads","Multi_mapping_reads", "Unmapped_reads", "Indels")
+align_summary_names_PE <- c("Total_fragments", "Mapped_fragments", "Uniquely_mapped_fragments", "Multi_mapping_fragments", "Unmapped_fragments", "Properly_paired_fragments", "Singleton_fragments", "More_than_one_chr_fragments", "Unexpected_strandness_fragments", "Unexpected_template_length", "Inversed_mapping", "Indels")
 
 bamfiles <- list.files(fastqdir, pattern = "subread.BAM$", full.names = TRUE)
 
@@ -365,12 +372,36 @@ bamfiles <- list.files(fastqdir, pattern = "subread.BAM$", full.names = TRUE)
 
       } else if (length(fastqfiles) > 0) {
         # do align
-        align_summary <- Rsubread::align(index = file.path(indexdir, "reference_index"),
-                                         readfile1 = if (params$seqtype == "PE") {for_files} else {fastqfiles},
-                                         readfile2 = if (params$seqtype == "PE") {rev_files} else {NULL},
-                                         type = "rna",
-                                         nthreads = parallel::detectCores())
-        #if performing align() for the first time, assign bamfiles again and save rds
+        # align_summary <- Rsubread::align(index = file.path(indexdir, "reference_index"),
+        #                                  readfile1 = if (params$seqtype == "PE") {for_files} else {fastqfiles},
+        #                                  readfile2 = if (params$seqtype == "PE") {rev_files} else {NULL},
+        #                                  type = "rna",
+        #                                  nthreads = parallel::detectCores())
+        # note that, in contrast to outer 
+        # (which applies a vectorized function to all combinations of two arguments), 
+        # mapply calls FUN on the first elements, then the second elements and so on
+        if(params$seqtype == "PE") {
+          align_summary <- parallel::mcmapply(
+            Rsubread::align, 
+            readfile1 = for_files,
+            readfile2 = rev_files, 
+            MoreArgs = list(index = file.path(indexdir, "reference_index"), 
+                          type = "rna", 
+                          nthreads = parallel::detectCores())
+          )
+          align_summary <- as.data.frame(align_summary, row.names = align_summary_names_PE)
+        } else {
+          align_summary <- parallel::mcmapply(
+            Rsubread::align,
+            readfile1 = fastqfiles, 
+            MoreArgs = list(index = file.path(indexdir, "reference_index"), 
+                          type = "rna", 
+                          nthreads = parallel::detectCores())
+          )
+          align_summary <- as.data.frame(align_summary, row.names = align_summary_names_SE)
+        }
+        # because performing align() for the first time, assign bamfiles again and save rds
+        
         saveRDS(align_summary, file = file.path(fastqdir, "align_summary.rds"))
         bamfiles <- list.files(fastqdir, pattern = "BAM$", full.names = TRUE)
 
@@ -390,6 +421,8 @@ bamfiles <- list.files(fastqdir, pattern = "subread.BAM$", full.names = TRUE)
 ```
 
 ```{r}
+
+
 total_fragments <- sum(align_summary[1,])
 mapped_fragments <- sum(align_summary[2,])
 mapped_fragments_percent <- mapped_fragments/total_fragments*100
@@ -574,7 +607,7 @@ apexplot_genebiotypes %>%
 
 ***
 
-### RSeQC modules
+### RSeQC and Qualimap modules
 
 #### Duplication rate
 
@@ -645,7 +678,8 @@ duprate_plot <- dupratedf_mod %>%
 
 
 <div class = "col-md-12">
-```{r, include=TRUE}
+```{r, include=FALSE} 
+# not included for now
 duprate_plot %>%
   ax_labs(title = "Reads duplication rate based on sequence (seq) and mapping (pos)", 
           subtitle = "The color intensity is (log10) proportional to the reads counts, occurence is truncated at 400",
@@ -677,7 +711,7 @@ dupratedf_mod %>%
 
 #### Read strandness  
 
-This [module](http://rseqc.sourceforge.net/#infer-experiment-py) is used to “guess” how RNA-seq sequencing were configured, particulary how reads were stranded for strand-specific RNAseq data. It compares the “strandness of reads” with the “standness of transcripts”. If a stranded RNAseq kit has been used, it is expected that most of the reads map to the respective strand. This information can be used to infer the amount of genomic DNA left in the RNA sample.
+This [RSeQC module](http://rseqc.sourceforge.net/#infer-experiment-py) is used to “guess” how RNA-seq sequencing were configured, particulary how reads were stranded for strand-specific RNAseq data. It compares the “strandness of reads” with the “standness of transcripts”. If a stranded RNAseq kit has been used, it is expected that most of the reads map to the respective strand. This information can be used to infer the amount of genomic DNA left in the RNA sample.
 
 ```{r, Read strandness}
 # prepares files needed, executes infer_experiment.py and reads data to df
@@ -736,51 +770,51 @@ strandness_df %>%
 
 #### Genebody coverage   
 
-This [module](http://rseqc.sourceforge.net/#genebody-coverage-py) calculates the RNAseq reads coverage along the genes. For "normal" RNAseq it is expected that the coverage is uniform, e.g. there is no 5' or 3' bias, and decreases towards the 5' and 3' ends. Note that, for bacterial genomes, the gene boundaries are often not well defined (usually the coding sequences are predicted, not the transcripts) and the coding sequences are regarded as a "genes". As a consequence, the genebody coverage plot may not look as good as for model organisms with well annotated genomes. 
+The RNAseq reads coverage along the genes is calculated using [Qualimap](). 
+For "normal" RNAseq it is expected that the coverage is uniform, e.g. there is no 5' or 3' bias, and decreases towards the 5' and 3' ends. Note that, for bacterial genomes, the gene boundaries are often not well defined (usually the coding sequences are predicted, not the transcripts) and the coding sequences are regarded as a "genes". As a consequence, the genebody coverage plot may not look as good as for model organisms with well annotated genomes. 
 
 ```{r genebody coverage}
-# The module requires sorted and indexed bam files, so first this has to be done:
-source("bin/samtools_si.R")
-
-parallel::mclapply(bamfiles, samtools_sort)
-
-bamfiles_sorted <- list.files(fastqdir, pattern = "sorted.bam$", full.names = TRUE)
-parallel::mclapply(bamfiles_sorted, samtools_index)
-
-# after this, just run geneBody_coverage.py on the sorted (and indexed) bams
-# this is also slow, so use parallel
+# this chunk creates an output dir, executes qualimap rnaseq (install it with conda),
+# outputs the data to a temp folder with the same name as the bam file,
+# writes the genebody coverage data and deletes the output of qualimap 
 
 # define output folder
-genebody_outdir <- file.path("02-RNAseq-results/", "genebody_coverage")
+genebody_outdir <- file.path("02-RNAseq-results/", "genebody_coverage_qualimap")
 if(dir.exists(genebody_outdir)) {
   unlink(genebody_outdir, force = TRUE, recursive = TRUE)
 }
 dir.create(genebody_outdir)
 
-
-genecoverage <- function(bamfile, bedfile) {
-  system2(command = "geneBody_coverage.py", 
-          args = c("-i", bamfile, "-r", bedfile, "-o", basename(bamfile), sep = "")
+# the core function to execute "qualimap rnaseq", return the data and delete the output folder
+genecoverage <- function(bamfile, gtffile) {
+  # execute qualimap
+  system2(command = "qualimap", 
+          args = c("rnaseq", "-bam", bamfile, "-gtf", gtffile, "-outdir", basename(bamfile))
           )
+  # return data
+  coveragefile <- file.path(basename(bamfile), "raw_data_qualimapReport", "coverage_profile_along_genes_(total).txt")
+  coveragedata <- fread(coveragefile, col.names = c("position", "coverage"))
+  fwrite(coveragedata, 
+         file = paste(file.path(genebody_outdir, basename(bamfile)), ".covdata", sep = ""), 
+         sep = "\t")
+  #delete qualimap output
+  system2("rm", args = c("-rf", basename(bamfile)))
 }
 
-parallel::mclapply(bamfiles_sorted, genecoverage, bedfile)
 
-# have to move the files manualy here
-genebody_outfiles <- list.files(".", pattern = "geneBodyCoverage")
-system2("mv", args = c(genebody_outfiles, genebody_outdir))
+parallel::mclapply(bamfiles, genecoverage, gtffile)
+
 
 # -----------------------------------------------
-# parsing output og geneBody_coverage.py in R
+# parsing output of qualimap rnaseq in R
 # use the txt files to get the values 
-genebody_outfiles_txt <- list.files(path = genebody_outdir, pattern = "geneBodyCoverage.txt$", full.names = TRUE)
+genebody_outfiles_txt <- list.files(path = genebody_outdir, pattern = ".covdata$", full.names = TRUE)
 
 # read one geneBodyCoverage.txt file and return a df
 read_genebody <- function(x) {
-tibble(filename = basename(x) %>% str_extract(pattern = "^\\w+"),
-       counts = fread(x, skip = 1, nrows = 1, drop = 1) %>% t() %>% as.numeric(), 
-       percentile_rank = percent_rank(counts),
-       percentile = 1:100) 
+  fread(x) %>% 
+    mutate(filename = basename(x) %>% str_extract(pattern = "^\\w+"),
+           percentile_rank = percent_rank(coverage))
 }
 
 genebody_df <- map_dfr(genebody_outfiles_txt, read_genebody)
@@ -792,7 +826,7 @@ genebody_df <- map_dfr(genebody_outfiles_txt, read_genebody)
 
 ```{r, gene body coverage plot, include=TRUE}
 genebody_df %>% 
-  apex(mapping = aes(percentile, percentile_rank, group = filename), type = "line") %>%
+  apex(mapping = aes(position, percentile_rank, group = filename), type = "line") %>%
   ax_yaxis(decimalsInFloat = 2, max = 1) %>% 
   ax_xaxis(min = 0, tickAmount = 5) %>% 
   ax_stroke(width = 1) %>% 
