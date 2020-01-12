@@ -137,12 +137,16 @@ resultsdir <- file.path(getwd(), "02-RNAseq-results")
         stop("No fastq files found in supplied directory")
   }
 
-# if PE sequencing was selected, get for and rev; otherwise treat all fastq files as SE
-#if (params$seqtype == "PE") {
-  for_files <- fastqfiles[str_detect(fastqfiles, "_R1_")]
-  rev_files <- fastqfiles[str_detect(fastqfiles, "_R2_")]
-#}
-#error here!!!
+# if PE sequencing was selected, get for and rev
+#error here if length(for_files) != length(rev_files)!!!
+
+ for_files <- fastqfiles[str_detect(fastqfiles, "_R1_")]
+ rev_files <- fastqfiles[str_detect(fastqfiles, "_R2_")]
+ if (params$seqtype == "PE" & length(for_files) != length(rev_files)) {
+  stop("PE was selected but the number of R1 files is not equal to the number of R2 files, 
+       check your fastq folder")
+ }
+
 
 # stop early also if no GFF file is supplied
   if(is.null(params$GFF_file)) {
@@ -366,12 +370,33 @@ bamfiles <- list.files(fastqdir, pattern = "subread.BAM$", full.names = TRUE)
 
       } else if (length(fastqfiles) > 0) {
         # do align
-        align_summary <- Rsubread::align(index = file.path(indexdir, "reference_index"),
-                                         readfile1 = if (params$seqtype == "PE") {for_files} else {fastqfiles},
-                                         readfile2 = if (params$seqtype == "PE") {rev_files} else {NULL},
-                                         type = "rna",
-                                         nthreads = parallel::detectCores())
-        #if performing align() for the first time, assign bamfiles again and save rds
+        # align_summary <- Rsubread::align(index = file.path(indexdir, "reference_index"),
+        #                                  readfile1 = if (params$seqtype == "PE") {for_files} else {fastqfiles},
+        #                                  readfile2 = if (params$seqtype == "PE") {rev_files} else {NULL},
+        #                                  type = "rna",
+        #                                  nthreads = parallel::detectCores())
+        # note that, in contrast to outer 
+        # (which applies a vectorized function to all combinations of two arguments), 
+        # mapply calls FUN on the first elements, then the second elements and so on
+        if(params$seqtype == "PE") {
+          align_summary <- parallel::mcmapply(
+            Rsubread::align, 
+            readfile1 = for_files,
+            readfile2 = rev_files, 
+            MoreArgs = list(index = file.path(indexdir, "reference_index"), 
+                          type = "rna", 
+                          nthreads = parallel::detectCores())
+          )
+        } else {
+          align_summary <- parallel::mcmapply(
+            Rsubread::align,
+            readfile1 = fastqfiles, 
+            MoreArgs = list(index = file.path(indexdir, "reference_index"), 
+                          type = "rna", 
+                          nthreads = parallel::detectCores())
+          )
+        }
+        # because performing align() for the first time, assign bamfiles again and save rds
         saveRDS(align_summary, file = file.path(fastqdir, "align_summary.rds"))
         bamfiles <- list.files(fastqdir, pattern = "BAM$", full.names = TRUE)
 
