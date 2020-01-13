@@ -9,13 +9,24 @@ git clone https://github.com/angelovangel/ngs-reports.git
 Open the respective Rmarkdown file in RStudio and click on `Knit` then `Knit with parameters`. Fill in the required fields and then press the `Knit` button. The generated report is a standalone html page with the same name as the Rmarkdown file, e.g. 02-RNAseq.Rmd will generate 02-RNAseq.html.    
 ## Requirements   
 The required `R` packages will be installed if they are not available when you first run the pipeline. In addition, these external programs have to be available in your path:   
-*For all pipelines:*
-- [`seqkit`](https://github.com/shenwei356/seqkit)
-- [`GNU parallel`](https://www.gnu.org/software/parallel/)
 
-*In addition, for the RNAseq pipeline:*
+- [`GNU parallel`](https://www.gnu.org/software/parallel/)
+- [`seqkit`](https://github.com/shenwei356/seqkit)
 - [`samtools`](http://www.htslib.org/)
 - [`RSeqQC`](http://rseqc.sourceforge.net/#)
+- [`gffread`]()
+- [`qualimap`]()
+
+You can also use the `environment.yml` file to create a conda environment with the required tools:
+```
+conda env create -f environment.yml
+```
+
+and then activate it with:
+```
+conda activate ngs-reports-0.1
+```
+
 
 ***
 

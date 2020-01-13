@@ -371,12 +371,7 @@ bamfiles <- list.files(fastqdir, pattern = "subread.BAM$", full.names = TRUE)
         stop("No fastq files found in supplied directory")
 
       } else if (length(fastqfiles) > 0) {
-        # do align
-        # align_summary <- Rsubread::align(index = file.path(indexdir, "reference_index"),
-        #                                  readfile1 = if (params$seqtype == "PE") {for_files} else {fastqfiles},
-        #                                  readfile2 = if (params$seqtype == "PE") {rev_files} else {NULL},
-        #                                  type = "rna",
-        #                                  nthreads = parallel::detectCores())
+        
         # note that, in contrast to outer 
         # (which applies a vectorized function to all combinations of two arguments), 
         # mapply calls FUN on the first elements, then the second elements and so on
@@ -400,8 +395,8 @@ bamfiles <- list.files(fastqdir, pattern = "subread.BAM$", full.names = TRUE)
           )
           align_summary <- as.data.frame(align_summary, row.names = align_summary_names_SE)
         }
-        # because performing align() for the first time, assign bamfiles again and save rds
         
+        # because performing align() for the first time, assign bamfiles again and save rds
         saveRDS(align_summary, file = file.path(fastqdir, "align_summary.rds"))
         bamfiles <- list.files(fastqdir, pattern = "BAM$", full.names = TRUE)
 

@@ -1,0 +1,16 @@
+# This file can be used to create a conda anvironment to run the python programs needed, just do
+# conda env create -f environment.yml
+
+# the R packages needed are installed separately (in the R session in the docker image)
+
+name: ngs-reports-0.1
+channels:
+  #- defaults
+  - bioconda
+  - defaults
+  
+dependencies:
+  - rseqc=3.0.1
+  - qualimap=2.2.2a
+  - seqkit=0.11.0
+  - gffread=0.11.6
