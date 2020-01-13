@@ -10,7 +10,7 @@ channels:
   - defaults
   
 dependencies:
-  - rseqc=3.0.1
+  - rseqc
   - qualimap=2.2.2a
   - seqkit=0.11.0
   - gffread=0.11.6
