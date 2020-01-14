@@ -1,6 +1,6 @@
 # RSeQC read strandness modules
 # RSeQC has to be installed and the python scripts have to be available in the $PATH
-# This file defines XX functions:
+# This file defines 2 functions:
 #---------------------------------
 # rseqc_strand(bedfile, bamfiles, outdir)
 # takes a bedfile and a list of bam file paths, executes infer_experiment.py 
