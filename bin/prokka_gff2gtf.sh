@@ -13,9 +13,9 @@ no_args="true" # to capture case where no arguments were used and exit gracefull
 exon="no" # if no -e option used
 usage()
 {
-  echo "Usage: gff2gtf_rokka.sh [options]"
+  echo "Usage: prokka_gff2gtf.sh [options]"
   echo "For help, try:"
-  echo "gff2gtf_rokka -h"
+  echo "prokka_gff2gtf -h"
 }
 
 while getopts ":ehi:" opt; do
@@ -42,7 +42,7 @@ Example usage:
 gff2gtf_prokka.sh -e -i <inputGFFfile.gff>
 
 Output:
-GTF file with the same base name as the input
+GTF file on stdout, logfile in the form YYYYMMDD_HHMMSS_gff2gtf.log in the execution folder
 
 Options:
 -e        : convert 'transcript' key to 'exon' ('transcript' is produced by gffread -T)

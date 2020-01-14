@@ -1,7 +1,5 @@
 #! /usr/local/bin/bash
-# use params$GTF_attr_type
-# to group features into meta-features
-# often it is ID, gene_id, locus_tag...
+# produce a SAF table (for Rsubread) from a prokka-generated gff
 
 GFFIN=$1
 
