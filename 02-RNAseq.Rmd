@@ -128,13 +128,17 @@ header_table <- data.frame(Parameter = c("Project",
 
 fastqdir <- file.path(getwd(), params$fastq_dir)
 fastqfiles <- list.files(fastqdir, pattern = ".fast(q|q.gz)$", full.names = TRUE)
-resultsdir <- file.path(getwd(), "02-RNAseq-results")
+# define results dir, where everything goes
+  resultsdir <- file.path(getwd(), "02-RNAseq-results")
   if (!dir.exists(resultsdir)) {
     dir.create(resultsdir)
   }
 
 # define output dir for align, e.g. where bam files will go
-align_outdir <- file.path(resultsdir, "02_bamfiles")
+  align_outdir <- file.path(resultsdir, "02_bamfiles")
+  if(!dir.exists(align_outdir)) {
+    dir.create(align_outdir)
+  }
 
 # stop early if no fastq files found
   if (length(fastqfiles) == 0) {
@@ -377,8 +381,8 @@ align_outfiles <- file.path(align_outdir, paste(tools::file_path_sans_ext(basena
       if (length(bamfiles) > 0) {
         alignresult <- paste(length(bamfiles),
                              "BAM files already present, step was skipped")
-        # if align was performed before, align_summary.rds should be present in the fastq folder
-        align_summary <- readRDS(file.path(fastqdir, "align_summary.rds"))
+        # if align was performed before, align_summary.rds should be present in the align_outdir folder
+        align_summary <- readRDS(file.path(align_outdir, "align_summary.rds"))
 
       } else if ((length(fastqfiles) == 0)) {
         # no fastq found in fastqdir
@@ -413,8 +417,8 @@ align_outfiles <- file.path(align_outdir, paste(tools::file_path_sans_ext(basena
         }
         
         # because performing align() for the first time, assign bamfiles again and save rds
-        saveRDS(align_summary, file = file.path(fastqdir, "align_summary.rds"))
-        bamfiles <- list.files(resultsdir, pattern = "BAM$", full.names = TRUE)
+        saveRDS(align_summary, file = file.path(align_outdir, "align_summary.rds"))
+        bamfiles <- list.files(align_outdir, pattern = "BAM$", full.names = TRUE)
 
         alignresult <- paste(length(fastqfiles),
                              "fastq files were found, performing alignment.")
