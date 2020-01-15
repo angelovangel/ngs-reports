@@ -187,7 +187,7 @@ The analysis includes
 3. Generation of an index from a supplied fasta file (`Rsubread`)
 4. Align fastq files to the genome (`Rsubread`)
 5. Read summarization - feature counts. Summary of the counts per gene_biotype is provided (`Rsubread`)
-6. RSeQC modules -
+6. RSeQC and Qualimap modules - read strandness and gene body coverage
 
 
 ***
@@ -355,7 +355,11 @@ Alignment of reads to the genome was performed with `Rsubread::align()`.
 align_summary_names_SE <- c("Total_reads", "Mapped_reads", "Uniquely_mapped_reads","Multi_mapping_reads", "Unmapped_reads", "Indels")
 align_summary_names_PE <- c("Total_fragments", "Mapped_fragments", "Uniquely_mapped_fragments", "Multi_mapping_fragments", "Unmapped_fragments", "Properly_paired_fragments", "Singleton_fragments", "More_than_one_chr_fragments", "Unexpected_strandness_fragments", "Unexpected_template_length", "Inversed_mapping", "Indels")
 
-bamfiles <- list.files(fastqdir, pattern = "subread.BAM$", full.names = TRUE)
+# in case there are bam files already..
+bamfiles <- list.files(resultsdir, pattern = "subread.BAM$", full.names = TRUE)
+
+# character vector with output file names, redirect output to resultsdir/bamfiles
+align_outfiles <- file.path(resultsdir, paste(tools::file_path_sans_ext(basename(for_files)), ".subread.BAM", sep = ""))
 
   if (!is.null(params$fastq_dir)) {
 
@@ -380,6 +384,8 @@ bamfiles <- list.files(fastqdir, pattern = "subread.BAM$", full.names = TRUE)
             Rsubread::align, 
             readfile1 = for_files,
             readfile2 = rev_files, 
+            output_file = align_outfiles,
+            
             MoreArgs = list(index = file.path(indexdir, "reference_index"), 
                           type = "rna", 
                           nthreads = parallel::detectCores())
@@ -398,7 +404,7 @@ bamfiles <- list.files(fastqdir, pattern = "subread.BAM$", full.names = TRUE)
         
         # because performing align() for the first time, assign bamfiles again and save rds
         saveRDS(align_summary, file = file.path(fastqdir, "align_summary.rds"))
-        bamfiles <- list.files(fastqdir, pattern = "BAM$", full.names = TRUE)
+        bamfiles <- list.files(resultsdir, pattern = "BAM$", full.names = TRUE)
 
         alignresult <- paste(length(fastqfiles),
                              "fastq files were found, performing alignment.")
