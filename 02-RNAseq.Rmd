@@ -123,6 +123,9 @@ header_table <- data.frame(Parameter = c("Project",
                                      params$seqtype,
                                      params$min_map_qual))
 
+#---------------------------------------------------
+# define output directories and fastq files
+
 fastqdir <- file.path(getwd(), params$fastq_dir)
 fastqfiles <- list.files(fastqdir, pattern = ".fast(q|q.gz)$", full.names = TRUE)
 resultsdir <- file.path(getwd(), "02-RNAseq-results")
@@ -130,6 +133,8 @@ resultsdir <- file.path(getwd(), "02-RNAseq-results")
     dir.create(resultsdir)
   }
 
+# define output dir for align, e.g. where bam files will go
+align_outdir <- file.path(resultsdir, "02_bamfiles")
 
 # stop early if no fastq files found
   if (length(fastqfiles) == 0) {
@@ -138,10 +143,12 @@ resultsdir <- file.path(getwd(), "02-RNAseq-results")
   }
 
 # if PE sequencing was selected, get for and rev
-#error here if length(for_files) != length(rev_files)!!!
 
- for_files <- fastqfiles[str_detect(fastqfiles, "_R1_")]
+
+ for_files <- fastqfiles[str_detect(fastqfiles, "_R1_")] # if SE, then these are the same as fastqfiles
  rev_files <- fastqfiles[str_detect(fastqfiles, "_R2_")]
+ 
+ #error here if length(for_files) != length(rev_files)!!!
  if (params$seqtype == "PE" & length(for_files) != length(rev_files)) {
   stop("PE was selected but the number of R1 files is not equal to the number of R2 files, 
        check your fastq folder")
@@ -153,6 +160,8 @@ resultsdir <- file.path(getwd(), "02-RNAseq-results")
     stop("Please supply a GFF file")
   }
 
+#---------------------------------------------------------------
+ 
 # determine plot height for the next figures: 20px per sample?
 myfig.height <- if_else(length(fastqfiles) > 17, true = length(fastqfiles)*30, false = 350)
 
@@ -356,10 +365,11 @@ align_summary_names_SE <- c("Total_reads", "Mapped_reads", "Uniquely_mapped_read
 align_summary_names_PE <- c("Total_fragments", "Mapped_fragments", "Uniquely_mapped_fragments", "Multi_mapping_fragments", "Unmapped_fragments", "Properly_paired_fragments", "Singleton_fragments", "More_than_one_chr_fragments", "Unexpected_strandness_fragments", "Unexpected_template_length", "Inversed_mapping", "Indels")
 
 # in case there are bam files already..
-bamfiles <- list.files(resultsdir, pattern = "subread.BAM$", full.names = TRUE)
+bamfiles <- list.files(align_outdir, pattern = "subread.BAM$", full.names = TRUE)
+
 
 # character vector with output file names, redirect output to resultsdir/bamfiles
-align_outfiles <- file.path(resultsdir, paste(tools::file_path_sans_ext(basename(for_files)), ".subread.BAM", sep = ""))
+align_outfiles <- file.path(align_outdir, paste(tools::file_path_sans_ext(basename(for_files)), ".subread.BAM", sep = ""))
 
   if (!is.null(params$fastq_dir)) {
 
@@ -367,7 +377,7 @@ align_outfiles <- file.path(resultsdir, paste(tools::file_path_sans_ext(basename
       if (length(bamfiles) > 0) {
         alignresult <- paste(length(bamfiles),
                              "BAM files already present, step was skipped")
-        # if align was performed before, align_summary.tsv should be present in the fastq folder
+        # if align was performed before, align_summary.rds should be present in the fastq folder
         align_summary <- readRDS(file.path(fastqdir, "align_summary.rds"))
 
       } else if ((length(fastqfiles) == 0)) {
