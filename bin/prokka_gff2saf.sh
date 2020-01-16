@@ -10,5 +10,6 @@ gsed '/\trRNA\t/ s/$/;gene_biotype=rRNA/' | \
 gsed '/\ttRNA\t/ s/$/;gene_biotype=tRNA/' | \
 gsed '/\ttmRNA\t/ s/$/;gene_biotype=tmRNA/' | \
 gffread --table ID,@chr,@start,@end,@strand,gene_biotype,product
+# TODO output a log file with numbers of biotypes
 
 #gffread --table ID,@chr,@start,@end,@strand testdata/prokka-ID40/PROKKA_10132019.gff

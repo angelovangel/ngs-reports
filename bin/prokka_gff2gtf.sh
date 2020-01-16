@@ -68,7 +68,7 @@ shift $((OPTIND -1))
 
 #GFFIN=$1
 GFFBASE=$(basename $GFFIN .gff)
-logfile="$(date +"%Y%m%d_%H%M%S")-gff2gtf.log"
+logfile="$(date +"%Y%m%d-%H%M%S")-gff2gtf.log"
 # remove previous log files in exec directory
 rm -f *gff2gtf.log
 

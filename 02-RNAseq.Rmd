@@ -372,8 +372,11 @@ align_summary_names_PE <- c("Total_fragments", "Mapped_fragments", "Uniquely_map
 bamfiles <- list.files(align_outdir, pattern = "subread.BAM$", full.names = TRUE)
 
 
-# character vector with output file names, redirect output to resultsdir/bamfiles
-align_outfiles <- file.path(align_outdir, paste(tools::file_path_sans_ext(basename(for_files)), ".subread.BAM", sep = ""))
+# character vector with output file names, redirects output to resultsdir/bamfiles
+# for SE - bam files take the names from for_files, these are all fastq files (and have _R1_)
+# for PE - bam files take the names from for_files
+align_outfiles <- file.path(align_outdir, 
+                            paste(tools::file_path_sans_ext(basename(for_files)), ".subread.BAM", sep = ""))
 
   if (!is.null(params$fastq_dir)) {
 
@@ -409,6 +412,7 @@ align_outfiles <- file.path(align_outdir, paste(tools::file_path_sans_ext(basena
           align_summary <- parallel::mcmapply(
             Rsubread::align,
             readfile1 = fastqfiles, 
+            output_file = align_outfiles,
             MoreArgs = list(index = file.path(indexdir, "reference_index"), 
                           type = "rna", 
                           nthreads = parallel::detectCores())
@@ -521,7 +525,17 @@ system2(command = "bin/prokka_gff2saf.sh",
         )
 
 saffile <- file.path(resultsdir, "featureCounts_annotation.saf")
-# 
+#-------------------------------------------------------
+# produce a log with biotype counts
+# first remove old logs
+system2("rm", args = c("-f", file.path(resultsdir, "*gff2saf.log")))
+gff2saf_logname <- paste(Sys.time() %>% str_replace_all("-|:", "") %>% str_replace(" ", "-"), 
+                      "-gff2saf.log", sep = "")
+fread(saffile) %>% 
+  group_by(gene_biotype) %>% 
+  summarise(counts = n()) %>% 
+  fwrite(file = file.path(resultsdir, gff2saf_logname), sep = "\t")
+#---------------------------------------------------------
 
 fc <- featureCounts(files = bamfiles,
   annot.ext = saffile,
