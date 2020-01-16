@@ -764,6 +764,8 @@ source("bin/rseqc_read_strandness.R")
           args = c("-e", "-i", params$GFF_file), 
           stdout = gtffile
   )
+  # move that log file to results
+  system2("mv", args = c("*gff2gtf.log", resultsdir))
   
   # this is a perl script, written by 
   system2(command = "bin/gtf2bed", 
