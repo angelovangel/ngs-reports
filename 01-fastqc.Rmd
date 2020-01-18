@@ -65,7 +65,7 @@ pckgs <- c("yaml", "dplyr", "purrr", "tidyr", "readr", "stringr", "apexcharter",
            "kableExtra", "readxl", "data.table", "formattable")
 
 # Bioconductor packages
-bc_pckgs <- c("Rsubread", "qckitfastq")
+bc_pckgs <- c("qckitfastq")
 
 source("bin/check_install.R")
 check_install(pckgs)
@@ -76,12 +76,6 @@ check_install(bc_pckgs, repo = "Bioconductor")
 
 # this script uses functions which have to be sourced from the R folder:
 
-source("bin/process_samplesheet.R")
-source("bin/seqkit_stats.R")
-source("bin/gc_stats.R")
-source("bin/summarize_featureCounts.R")
-
-
 options(width = 121)
 
 header_table <- data.frame(Parameter = c("Project",
@@ -89,15 +83,13 @@ header_table <- data.frame(Parameter = c("Project",
                                          "Date",
                                          "FASTQ folder",
                                          "Library prep",
-                                         "Sequencer",
-                                         "Minimum map quality"),
+                                         "Sequencer"),
                            Value = c(params$project,
                                      params$author,
                                      as.character(params$date),
                                      params$fastq_dir,
                                      params$library_prep,
-                                     params$sequencer,
-                                     params$min_map_qual))
+                                     params$sequencer))
 
 #---------------------------------------------------
 # define output directories and fastq files
@@ -105,16 +97,11 @@ header_table <- data.frame(Parameter = c("Project",
 fastqdir <- file.path(getwd(), params$fastq_dir)
 fastqfiles <- list.files(fastqdir, pattern = ".fast(q|q.gz)$", full.names = TRUE)
 # define results dir, where everything goes
-  resultsdir <- file.path(getwd(), "02-RNAseq-results")
+  resultsdir <- file.path(getwd(), "01-fastqc-results")
   if (!dir.exists(resultsdir)) {
     dir.create(resultsdir)
   }
 
-# define output dir for align, e.g. where bam files will go
-  align_outdir <- file.path(resultsdir, "02_bamfiles")
-  if(!dir.exists(align_outdir)) {
-    dir.create(align_outdir)
-  }
 
 # stop early if no fastq files found
   if (length(fastqfiles) == 0) {
@@ -128,13 +115,6 @@ fastqfiles <- list.files(fastqdir, pattern = ".fast(q|q.gz)$", full.names = TRUE
  for_files <- fastqfiles[str_detect(fastqfiles, "_R1_")] # if SE, then these are the same as fastqfiles
  rev_files <- fastqfiles[str_detect(fastqfiles, "_R2_")]
  
- #error here if length(for_files) != length(rev_files)!!!
- if (params$seqtype == "PE" & length(for_files) != length(rev_files)) {
-  stop("PE was selected but the number of R1 files is not equal to the number of R2 files, 
-       check your fastq folder")
- }
-
-
 
 #---------------------------------------------------------------
  
@@ -160,20 +140,14 @@ kable(header_table) %>%
 
 ***
 
-### Description of the pipeline
+### Description 
 
-This pipeline performs QC analysis of RNA-seq data, using the `Rsubread` package in `R` as well as some custom functions (see below for full list of programs used and their versions).
-
+This pipeline performs QC analysis of fastq files, see below for full list of programs used and their versions.
 
 The analysis includes
 
 1. Sample input quality control (optional)
-2. Common read statistics (`seqkit`, `qckitfastq`, `GNU parallel`)
-3. Generation of an index from a supplied fasta file (`Rsubread`)
-4. Align fastq files to the genome (`Rsubread`)
-5. Read summarization - feature counts. Summary of the counts per gene_biotype is provided (`Rsubread`)
-6. RSeQC and Qualimap modules - read strandness and gene body coverage
-
+2. Per fastq file - number of reads, %Q30 and %Q20, GC-content,  (`seqkit`, `qckitfastq`, `GNU parallel`)
 
 ***
 
@@ -184,7 +158,8 @@ The analysis includes
   <summary>Show table with sample measurements at NCCT</summary>
 
 ```{r sample_form, include=TRUE}
-# readsamplesheet and formatsamplesheet are defined in R/process_samplesheet.R
+# readsamplesheet and formatsamplesheet are defined in bin/process_samplesheet.R
+source("bin/process_samplesheet.R")
 
   if (length(params$samplesheet) == 0) {
     paste("No QC sample sheet provided")
@@ -203,7 +178,8 @@ A total of **`r length(fastqfiles)`** FASTQ files were processed.
 You can copy/download the table using the buttons below. A copy of the table (as a tab-selimited file) is also available under ` `r paste(basename(resultsdir), "/reads_statistics.tsv", sep ="")` `.
 
 ```{r read_quality, include=TRUE}
-# seqkit_stats is defined in R/seqkit_stats.R
+# seqkit_stats is defined in bin/seqkit_stats.R
+source("bin/seqkit_stats.R")
 
 read_qual <- seqkit_stats(fastqfiles)
 readr::write_delim(read_qual, path = file.path(resultsdir, "reads_statistics.tsv"))
@@ -235,7 +211,8 @@ read_qual %>%
 
 ```{r gc_content}
 # make gc plots for the for_files only
-# gc_stats is defined in R/gc_stats.R
+# gc_stats is defined in bin/gc_stats.R
+source("bin/gc_stats.R")
 
 
 gcdf <- gc_stats(for_files)
