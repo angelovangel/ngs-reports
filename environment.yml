@@ -3,7 +3,7 @@
 
 # the R packages needed are installed separately (in the R session in the docker image)
 
-name: ngs-reports-0.1
+name: ngs-reports
 channels:
   #- defaults
   - bioconda

@@ -648,7 +648,7 @@ In this [RSeQC module](http://rseqc.sourceforge.net/#read-duplication-py), two m
 
 source("bin/rseqc_read_duplication.R")
 
-  duprate_dir <- file.path(resultsdir, "rseqc_duprate")
+  duprate_dir <- file.path(resultsdir, "duplication_rate_rseqc")
   
   if (dir.exists(duprate_dir)) {
     unlink(duprate_dir, recursive = TRUE, force = TRUE)
@@ -749,7 +749,7 @@ source("bin/rseqc_read_strandness.R")
 
   gtffile <- file.path(resultsdir, "annotation.gtf")
   bedfile <- file.path(resultsdir, "annotation.bed")
-  rseq_strand_outdir <- file.path(resultsdir, "rseqc_strandnes")
+  rseq_strand_outdir <- file.path(resultsdir, "strandnes_rseqc")
   
   # Make GTF and BED files and write them to results
     if(
