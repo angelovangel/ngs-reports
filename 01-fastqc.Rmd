@@ -11,7 +11,7 @@ output:
 params:
   project:
     label: "Project title"
-    value: "Type project title here"
+    value: ""
     input: text
   date:
     label: "Date"
@@ -19,7 +19,7 @@ params:
     input: date
   author:
     label: "Author"
-    value: "Type your name here"
+    value: ""
     input: text
   samplesheet:
     label: "Select QC sample sheet if available (use provided excel template)"
@@ -29,6 +29,11 @@ params:
     label: "Path to folder with fastq files (required, path relative to current folder)"
     value: "path/to/fastq"
     input: text
+  fastp_trimming:
+    label: "Do you want to produce fastp-trimmed reads?"
+    choices: ["Yes", "No"]
+    value: "No"
+    input: radio
   library_prep:
     label: "Library prep kit"
     choices: ["Zymo-Seq RiboFree Total RNA", "NEBNext Ultra II RNA", "Swift", "Illumina Nextera DNA Flex", "Zymo 16S", "Custom amplicon", "Illumina DNA TruSeq"]
@@ -172,7 +177,7 @@ source("bin/process_samplesheet.R")
 
 ***
 
-### Reads statistics
+### Basic reads statistics
 
 A total of **`r length(fastqfiles)`** FASTQ files were processed.
 You can copy/download the table using the buttons below. A copy of the table (as a tab-selimited file) is also available under ` `r paste(basename(resultsdir), "/reads_statistics.tsv", sep ="")` `.
@@ -205,8 +210,12 @@ read_qual %>%
 
 ```
 
+### `fastp` modules
+[`fastp`]() is a program similar to [`FastQC`](), but much faster. Here, `fastp` is run on the supplied fastq files and various statistics are generated. If quality and adapter trimming was selected in the startup window, it is performed here and the trimmed reads are saved in the results folder under `trimmed-reads`. 
 
-**GC-content of reads** - hover over the read names in the legend to see the trace. Traces are colored according to the peak GC-content of the sample. The raw GC content data used for the plots can be found in the ` `r basename(resultsdir)` ` folder.
+
+### GC-content of reads
+Hover over the read names in the legend to see the trace. Traces are colored according to the peak GC-content of the sample. The raw GC content data used for the plots can be found in the ` `r basename(resultsdir)` ` folder.
 
 
 ```{r gc_content}
@@ -266,7 +275,7 @@ gcdf %>%
 
 ```{r, include=TRUE}
 
-packages <- c("Rsubread", "dplyr", "purrr", "tidyr", "readr", "stringr", "apexcharter", "DT", "parallel", "qckitfastq", "kableExtra", "readxl", "data.table")
+packages <- c("dplyr", "purrr", "tidyr", "readr", "stringr", "apexcharter", "DT", "parallel", "qckitfastq", "kableExtra", "readxl", "data.table")
 sessioninfo::package_info(packages, dependencies = FALSE)
 
 ```
