@@ -1,0 +1,295 @@
+---
+title: "FASTQ QC report"
+subtitle: "Sample input and FASTQ quality control metrics"
+output:
+  html_document:
+    highlight: tango
+    theme: cosmo
+    toc: yes
+    #css: reports.css
+    #toc_float: yes
+params:
+  project:
+    label: "Project title"
+    value: "Type project title here"
+    input: text
+  date:
+    label: "Date"
+    value: !r Sys.Date()
+    input: date
+  author:
+    label: "Author"
+    value: "Type your name here"
+    input: text
+  samplesheet:
+    label: "Select QC sample sheet if available (use provided excel template)"
+    value:
+    input: file
+  fastq_dir:
+    label: "Path to folder with fastq files (required, path relative to current folder)"
+    value: "path/to/fastq"
+    input: text
+  library_prep:
+    label: "Library prep kit"
+    choices: ["Zymo-Seq RiboFree Total RNA", "NEBNext Ultra II RNA", "Swift", "Illumina Nextera DNA Flex", "Zymo 16S", "Custom amplicon", "Illumina DNA TruSeq"]
+    value: "Illumina Nextera DNA Flex"
+    input: select
+  sequencer:
+    label: "Sequencer"
+    choices: ["MiSeq", "NextSeq", "iSeq","NovaSeq"]
+    value: "NextSeq"
+    input: select
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = FALSE, 
+                      echo = FALSE, 
+                      warning = FALSE, 
+                      cache = FALSE)
+
+# add the correct bash $PATH to the R session, depending on the system R may not have the correct $PATH
+# touch ~/.Renviron 
+# R_PATH="PATH=$PATH"  
+# echo $R_PATH >  ~/.Renviron
+
+#------------------------------------------
+# Initialization, needed for all modules of this report
+#------------------------------------------
+
+# ----------------------------------------
+# Check required packages and install
+#-----------------------------------------
+# CRAN packages
+pckgs <- c("yaml", "dplyr", "purrr", "tidyr", "readr", "stringr", "apexcharter", "DT", "parallel",
+           "kableExtra", "readxl", "data.table", "formattable")
+
+# Bioconductor packages
+bc_pckgs <- c("Rsubread", "qckitfastq")
+
+source("bin/check_install.R")
+check_install(pckgs)
+check_install(bc_pckgs, repo = "Bioconductor")
+
+# ----------------------------------------
+
+
+# this script uses functions which have to be sourced from the R folder:
+
+source("bin/process_samplesheet.R")
+source("bin/seqkit_stats.R")
+source("bin/gc_stats.R")
+source("bin/summarize_featureCounts.R")
+
+
+options(width = 121)
+
+header_table <- data.frame(Parameter = c("Project",
+                                         "Author",
+                                         "Date",
+                                         "FASTQ folder",
+                                         "Library prep",
+                                         "Sequencer",
+                                         "Minimum map quality"),
+                           Value = c(params$project,
+                                     params$author,
+                                     as.character(params$date),
+                                     params$fastq_dir,
+                                     params$library_prep,
+                                     params$sequencer,
+                                     params$min_map_qual))
+
+#---------------------------------------------------
+# define output directories and fastq files
+
+fastqdir <- file.path(getwd(), params$fastq_dir)
+fastqfiles <- list.files(fastqdir, pattern = ".fast(q|q.gz)$", full.names = TRUE)
+# define results dir, where everything goes
+  resultsdir <- file.path(getwd(), "02-RNAseq-results")
+  if (!dir.exists(resultsdir)) {
+    dir.create(resultsdir)
+  }
+
+# define output dir for align, e.g. where bam files will go
+  align_outdir <- file.path(resultsdir, "02_bamfiles")
+  if(!dir.exists(align_outdir)) {
+    dir.create(align_outdir)
+  }
+
+# stop early if no fastq files found
+  if (length(fastqfiles) == 0) {
+        #
+        stop("No fastq files found in supplied directory")
+  }
+
+# if PE sequencing was selected, get for and rev
+
+
+ for_files <- fastqfiles[str_detect(fastqfiles, "_R1_")] # if SE, then these are the same as fastqfiles
+ rev_files <- fastqfiles[str_detect(fastqfiles, "_R2_")]
+ 
+ #error here if length(for_files) != length(rev_files)!!!
+ if (params$seqtype == "PE" & length(for_files) != length(rev_files)) {
+  stop("PE was selected but the number of R1 files is not equal to the number of R2 files, 
+       check your fastq folder")
+ }
+
+
+
+#---------------------------------------------------------------
+ 
+# determine plot height for the next figures: 20px per sample?
+myfig.height <- if_else(length(fastqfiles) > 17, true = length(fastqfiles)*30, false = 350)
+
+```
+*Report generated on `r Sys.time()` by `r params$author` on `r Sys.info()[4]`*
+
+
+
+```{r header_table, include=TRUE}
+
+kable(header_table) %>%
+  kable_styling(bootstrap_options = c("condensed", "hover"),
+                full_width = T,
+                position = "left") %>%
+  column_spec(1, bold = T) %>%
+  column_spec(1:2, background = "#e6f0ff") %>%
+  row_spec(0, color = "white")
+```
+
+
+***
+
+### Description of the pipeline
+
+This pipeline performs QC analysis of RNA-seq data, using the `Rsubread` package in `R` as well as some custom functions (see below for full list of programs used and their versions).
+
+
+The analysis includes
+
+1. Sample input quality control (optional)
+2. Common read statistics (`seqkit`, `qckitfastq`, `GNU parallel`)
+3. Generation of an index from a supplied fasta file (`Rsubread`)
+4. Align fastq files to the genome (`Rsubread`)
+5. Read summarization - feature counts. Summary of the counts per gene_biotype is provided (`Rsubread`)
+6. RSeQC and Qualimap modules - read strandness and gene body coverage
+
+
+***
+
+### Sample input quality control
+
+
+<details>
+  <summary>Show table with sample measurements at NCCT</summary>
+
+```{r sample_form, include=TRUE}
+# readsamplesheet and formatsamplesheet are defined in R/process_samplesheet.R
+
+  if (length(params$samplesheet) == 0) {
+    paste("No QC sample sheet provided")
+  } else {
+    samplesheet <- readsamplesheet(params$samplesheet)
+    formatsamplesheet(samplesheet)
+  }
+```
+</details>
+
+***
+
+### Reads statistics
+
+A total of **`r length(fastqfiles)`** FASTQ files were processed.
+You can copy/download the table using the buttons below. A copy of the table (as a tab-selimited file) is also available under ` `r paste(basename(resultsdir), "/reads_statistics.tsv", sep ="")` `.
+
+```{r read_quality, include=TRUE}
+# seqkit_stats is defined in R/seqkit_stats.R
+
+read_qual <- seqkit_stats(fastqfiles)
+readr::write_delim(read_qual, path = file.path(resultsdir, "reads_statistics.tsv"))
+
+read_qual %>%
+  mutate(file = basename(file)) %>%
+  dplyr::select(file,  num_seqs,`Q20(%)`, `Q30(%)`) %>%
+
+  DT::datatable(filter = "top",
+                caption = paste("FASTQ quality metrics. Total output is",
+                                format(sum(read_qual$sum_len)/1e6, digits = 0, big.mark = ","),
+                                "M bases and",
+                                format(sum(read_qual$num_seqs)/1e6, digits = 0, big.mark = ","),
+                                "M reads."),
+                extensions = c('Scroller', 'Buttons'),
+                options = list(dom= "Btp", deferRender = TRUE,
+                               scrollY = 400,scroller = TRUE, buttons = c('copy', 'csv', 'excel')),
+                style = 'bootstrap',
+                class = 'table-hover table-condensed') %>%
+  formatStyle('num_seqs', background = styleColorBar(read_qual$num_seqs, "lightgreen")) %>%
+  formatStyle(c('Q20(%)', 'Q30(%)'), color = styleInterval(c(80, 90), c("red", "orange", "green"))) %>%
+  formatRound('num_seqs', digits = 0, mark = ",")
+
+```
+
+
+**GC-content of reads** - hover over the read names in the legend to see the trace. Traces are colored according to the peak GC-content of the sample. The raw GC content data used for the plots can be found in the ` `r basename(resultsdir)` ` folder.
+
+
+```{r gc_content}
+# make gc plots for the for_files only
+# gc_stats is defined in R/gc_stats.R
+
+
+gcdf <- gc_stats(for_files)
+readr::write_delim(gcdf, path = file.path(resultsdir, "gc_content_statistics.tsv"))
+
+# make also per sample df?
+# gcdf %>% mutate(sample = stringr::str_remove(readname, "_R._001.fastq.gz"))
+
+# prepare colors for the plots
+colfun <- scales::colour_ramp(c("lightgreen", "green", "orange","red", "violet"))
+gcdf2 <- gcdf %>%
+  group_by(readname) %>%
+  slice(which.max(counts)) %>%
+  mutate(mycolor = colfun(mids))
+
+```
+
+
+
+```{r, include=TRUE}
+
+# GC plot counts
+# gc_stats_apexplot() is defined in R/gc_stats.r
+
+gcdf %>%
+  gc_stats_apexplot(x = mids, y = counts, group = readname, width = "800", height = "400") %>%
+  ax_colors(gcdf2$mycolor) %>%
+  ax_legend(position = "right")
+
+```
+
+
+
+
+```{r, include=TRUE}
+
+# GC plot ax_plot percents
+# gc_stats_apexplot() is defined in R/gc_stats.r
+gcdf %>%
+  gc_stats_apexplot(x = mids, y = percents, group = readname, width = "800", height = "400") %>%
+  ax_colors(gcdf2$mycolor) %>%
+  ax_legend(position = "right")
+
+```
+
+
+
+***
+
+### Software versions
+
+```{r, include=TRUE}
+
+packages <- c("Rsubread", "dplyr", "purrr", "tidyr", "readr", "stringr", "apexcharter", "DT", "parallel", "qckitfastq", "kableExtra", "readxl", "data.table")
+sessioninfo::package_info(packages, dependencies = FALSE)
+
+```
