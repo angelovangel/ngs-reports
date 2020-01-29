@@ -67,6 +67,8 @@ knitr::opts_chunk$set(include = FALSE,
                       echo = FALSE, 
                       warning = FALSE, 
                       cache = FALSE)
+
+
 # add this to your .Rprofile to allow uploading files larger than 5 Mb
 # options(shiny.maxRequestSize=30*1024^2)
 
@@ -126,8 +128,10 @@ header_table <- data.frame(Parameter = c("Project",
 #---------------------------------------------------
 # define output directories and fastq files
 
-fastqdir <- file.path(getwd(), params$fastq_dir)
+# important - normalizePath so that fastq files anywhere can be used
+fastqdir <- normalizePath(params$fastq_dir)
 fastqfiles <- list.files(fastqdir, pattern = ".fast(q|q.gz)$", full.names = TRUE)
+
 # define results dir, where everything goes
   resultsdir <- file.path(getwd(), "02-RNAseq-results")
   if (!dir.exists(resultsdir)) {
@@ -173,6 +177,9 @@ myfig.height <- if_else(length(fastqfiles) > 17, true = length(fastqfiles)*30, f
 *Report generated on `r Sys.time()` by `r params$author` on `r Sys.info()[4]`*
 
 
+<style>
+div.blue { background-color:#e6f0ff;}
+</style>
 
 ```{r header_table, include=TRUE}
 
@@ -511,7 +518,11 @@ align_plot %>%
 
 ### Read summarization - feature counts
 
-In this step the mapped reads (or fragments in case of PE) are assigned to genomic features, e.g. genes. The GFF file is converted to SAF and the gene_biotype attribute is added (currently only CDS, rRNA, tRNA and tmRNA). The used minimum mapping quality score that a read must have in order to be counted is **`r params$min_map_qual`**. The output of featureCounts - `02-RNAseq-results/featureCounts.rds` can be used as a count matrix input to further DGE analysis programs, e.g. `DESeq2` and `edgeR`. An example of how to use this output in `DESeq2` can be found [here](http://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#count-matrix-input).
+In this step the mapped reads (or fragments in case of PE) are assigned to genomic features, e.g. genes. The GFF file is converted to SAF and the gene_biotype attribute is added (currently only CDS, rRNA, tRNA and tmRNA). The used minimum mapping quality score that a read must have in order to be counted is **`r params$min_map_qual`**. 
+
+<div class = "blue">
+The output of featureCounts - `02-RNAseq-results/featureCounts.rds` can be used as a count matrix input to further DGE analysis programs, e.g. `DESeq2` and `edgeR`. An example of how to use this output in `DESeq2` can be found [here](http://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#count-matrix-input).
+</div>
 
 ```{r step_featureCounts}
 # using the R/prokka_gff2saf script for prokka generated gff files:
@@ -549,6 +560,8 @@ fc <- featureCounts(files = bamfiles,
   nthreads = 6)
 
 saveRDS(fc, file = file.path(resultsdir, "featureCounts.rds"))
+# and write counts for use downstream, e.g. DESeq2 and edgeR
+fwrite(fc$counts, file = file.path(resultsdir, "featureCounts.tsv"), sep = "\t")
 
 # note this!! #####################
 fc_stats <- fc$stat[,-1] %>%
@@ -764,7 +777,8 @@ source("bin/rseqc_read_strandness.R")
           args = c("-e", "-i", params$GFF_file), 
           stdout = gtffile
   )
-  # move that log file to results
+  # move that log file to results (remove old ones first)
+  system2("rm", args = c("-f", file.path(resultsdir, "*gff2gtf.log")))
   system2("mv", args = c("*gff2gtf.log", resultsdir))
   
   # this is a perl script, written by 
