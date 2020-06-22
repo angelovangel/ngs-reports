@@ -375,7 +375,7 @@ The raw GC content data used for the plots can be found in the ` `r basename(res
 
 ```{r, include=TRUE}
 
-packages <- c("dplyr", "purrr", "tidyr", "readr", "stringr", "apexcharter", "DT", "parallel", "qckitfastq", "kableExtra", "readxl", "data.table")
+packages <- pckgs
 sessioninfo::package_info(packages, dependencies = FALSE)
 
 ```
