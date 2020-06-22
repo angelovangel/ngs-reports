@@ -1,0 +1,399 @@
+---
+title: "Sample and sequencing QC report"
+subtitle: "Sample input and FASTQ quality control metrics, NCCT, Univesitätsklinikum Tübingen"
+output:
+  html_document:
+    highlight: tango
+    theme: cosmo
+    toc: yes
+    #css: reports.css
+    #toc_float: yes
+params:
+  project:
+    label: "Project title"
+    value: ""
+    input: text
+  date:
+    label: "Date"
+    value: !r Sys.Date()
+    input: date
+  author:
+    label: "Author"
+    value: ""
+    input: text
+  samplesheet:
+    label: "Select QC sample sheet if available (use provided excel template)"
+    value:
+    input: file
+  fastq_dir:
+    label: "Path to folder with fastq files (required, path relative to current folder)"
+    value: "path/to/fastq"
+    input: text
+  fastp_trimming:
+    label: "Do you want to produce fastp-trimmed reads?"
+    choices: ["Yes", "No"]
+    value: "No"
+    input: radio
+  library_prep:
+    label: "Library prep kit"
+    choices: ["Zymo-Seq RiboFree Total RNA", "NEBNext Ultra II RNA", "Swift", "Illumina Nextera DNA Flex", "Zymo 16S", "Custom amplicon", "Illumina DNA TruSeq"]
+    value: "Illumina Nextera DNA Flex"
+    input: select
+  sequencer:
+    label: "Sequencer"
+    choices: ["MiSeq", "NextSeq", "iSeq","NovaSeq"]
+    value: "NextSeq"
+    input: select
+---
+
+<style>
+div.blue { background-color:#e6f0ff;}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = FALSE, 
+                      echo = FALSE, 
+                      warning = FALSE, 
+                      cache = FALSE)
+
+# add the correct bash $PATH to the R session, depending on the system R may not have the correct $PATH
+# touch ~/.Renviron 
+# R_PATH="PATH=$PATH"  
+# echo $R_PATH >  ~/.Renviron
+
+source("bin/check_install.R")
+source("bin/process_samplesheet.R")
+source("bin/seqkit_stats.R") # for general stats and gc stats
+source("bin/fastp_stats.R") # 
+
+#-----------------------------------------
+# Define si_fmt, which uses si_format.sh to print suffixes to large numbers
+si_fmt <- function(x) {
+  system2("bin/si_format.sh", x, stdout = TRUE)
+}
+
+# ----------------------------------------
+# Check required packages and install
+#-----------------------------------------
+# CRAN packages
+pckgs <- c("yaml", "dplyr", "purrr", "tidyr", "readr", "stringr", "apexcharter", "DT", "parallel",
+           "kableExtra", "readxl", "data.table", "formattable")
+
+# Bioconductor packages
+# bc_pckgs <- c("qckitfastq")
+
+check_install(pckgs)
+# check_install(bc_pckgs, repo = "Bioconductor")
+
+# ----------------------------------------
+
+
+options(width = 121)
+#important to use normalizePath, so that fastq dir anywhere can be processed
+fastqdir <- normalizePath(params$fastq_dir)
+
+header_table <- data.frame(Parameter = c("Project",
+                                         "Author",
+                                         "Date",
+                                         "FASTQ folder",
+                                         "Library prep kit",
+                                         "Sequencing machine"),
+                           Value = c(params$project,
+                                     params$author,
+                                     as.character(params$date),
+                                     fastqdir,
+                                     params$library_prep,
+                                     params$sequencer))
+
+#---------------------------------------------------
+# define output directories and fastq files
+
+
+
+fastqfiles <- list.files(fastqdir, pattern = ".fast(q|q.gz)$", full.names = TRUE)
+# make a named vector, this is where the read names come from later in the mcmapply calls!!!
+names(fastqfiles) <- basename(fastqfiles)
+
+# define results dir, where everything goes
+  resultsdir <- file.path(getwd(), "01-fastqc-results")
+  if (dir.exists(resultsdir)) {
+    unlink(resultsdir, recursive = TRUE, force = TRUE)
+  }
+  dir.create(resultsdir)
+
+# stop early if no fastq files found
+  if (length(fastqfiles) == 0) {
+        #
+        stop("No fastq files found in supplied directory")
+  }
+
+# determine if the dataset is PE or SE, get for and rev files
+
+
+ for_files <- fastqfiles[str_detect(fastqfiles, "_R1_")] # if SE, then these are the same as fastqfiles
+ rev_files <- fastqfiles[str_detect(fastqfiles, "_R2_")]
+ 
+ if(length(for_files) == length(fastqfiles)) {
+   fastq_dataset <- "SE"
+ } else if(length(for_files) == length(rev_files)) {
+   fastq_dataset <- "PE"
+ } else {
+   stop("Data seems PE but different number of R1 and R2 files")
+ }
+#---------------------------------------------------------------
+ 
+# determine plot height for the next figures: 20px per sample?
+myfig.height <- if_else(length(fastqfiles) > 17, true = length(fastqfiles)*30, false = 350)
+
+```
+*Report generated on `r Sys.time()` by `r params$author` on `r Sys.info()[4]`*
+
+
+
+```{r header_table, include=TRUE}
+
+kable(header_table) %>%
+  kable_styling(bootstrap_options = c("condensed", "hover"),
+                full_width = T,
+                position = "left") %>%
+  column_spec(2, bold = T) %>%
+  column_spec(1:2, background = "#e6f0ff") %>%
+  row_spec(0, color = "white")
+```
+
+REWRITE ALL USING SEQKIT
+
+***
+
+### Description 
+
+This report includes data about the sample input QC as well as some sequencing metrics. The fastp report for each fastq file as well as the trimmed reads (`fastp` with default parameters) and all raw data used in the plots, are available in the  `01-fastq-results` folder.   
+
+***
+
+### Sample input quality control
+
+
+<details>
+  <summary>Show table with sample measurements at NCCT</summary>
+
+```{r sample_form, include=TRUE}
+# readsamplesheet and formatsamplesheet are defined in bin/process_samplesheet.R
+
+  if (length(params$samplesheet) == 0) {
+    paste("No QC sample sheet provided")
+  } else {
+    samplesheet <- readsamplesheet(params$samplesheet)
+    formatsamplesheet(samplesheet)
+  }
+```
+</details>
+
+***
+
+### Number of reads and average read quality
+
+
+```{r seqkit_stats}
+seqkit_stats_data <- seqkit_stats(fastqfiles)
+total_reads <- sum(seqkit_stats_data$num_seqs,na.rm = T) %>% si_fmt()
+total_bases <- sum(seqkit_stats_data$sum_len, na.rm = T) %>% si_fmt()
+
+```
+
+<div class = "blue">
+
+Dataset type: **`r fastq_dataset`**
+
+Number of fastq files: **`r length(fastqfiles)`** 
+
+Total reads: **`r total_reads`**
+
+Total bases: **`r total_bases`**
+
+</div>
+
+A copy of the table (as a tab-delimited file) is also available under ` `r paste(basename(resultsdir), "/basic_stats.tsv", sep ="")` `.
+
+
+```{r seqkit_stats_table, include=TRUE}
+# rewrite this for seqkit stats
+
+# prepare a suitable header and select list depending on the type of data: ont or ilmn
+basic_stats_header <- paste("Number of reads and quality metrics")
+
+  
+seqkit_stats_data %>% 
+  dplyr::mutate(num_sequences = si_fmt(num_seqs), num_bases = si_fmt(sum_len)) %>%
+  dplyr::select(c(file, num_seqs, num_sequences, sum_len, num_bases, sum_gap, "Q20(%)", "Q30(%)")) %>%
+  DT::datatable(filter = "top",
+                 caption = basic_stats_header,
+                 extensions = c('Scroller', 'Buttons'),
+                 options = list(dom= "Btp", deferRender = TRUE,
+                                scrollY = 400, scroller = TRUE, buttons = c('copy', 'csv', 'excel'),
+                                columnDefs = list(list(visible = FALSE, targets = c(2, 4)))),       # hide cols in DT
+                 style = 'bootstrap',
+                 class = 'table-hover table-condensed') %>%
+  formatStyle('num_sequences', valueColumns = 'num_seqs', 
+              background = styleColorBar(data = c(0, max(seqkit_stats_data$num_seqs)), "lightgreen")) %>%
+  formatStyle('num_bases', valueColumns = 'sum_len', 
+              background = styleColorBar(data = c(0, max(seqkit_stats_data$sum_len)), "lightgreen")) %>%
+  formatStyle(c("Q20(%)", "Q30(%)"), color = styleInterval(c(0.8, 0.9), c("red", "orange", "green")))
+
+```
+
+***
+
+
+### `fastp` filtering
+All fastq reads are processed with `fastp`, the individual report files can be found in the ` `r paste(basename(resultsdir), "/fastp_reports", sep ="")` ` directory. The values in the table below are per sample, e.g. for both R1 and R2 in case of PE data.
+
+```{r fastp_exec}
+
+#----------------------------------------------------------------
+# run fast_se (fast_pe) to generate list with all data
+# with parallel::mclapply, use named list for fastq filenames
+# no plotting here
+# the fastp_data list contains all info for duplication, per-cycle content etc
+
+# determine if trimming will be done
+if (params$fastp_trimming == "Yes") {
+    save_trimmed <- TRUE
+} else {
+    save_trimmed <- FALSE
+}
+
+
+# SE case, fastq_dataset is defined in the setup section
+if(fastq_dataset == "SE") {
+    fastp_data <- parallel::mcmapply(fastp_se, fastqfiles, 
+                                     SIMPLIFY = FALSE, 
+                                     MoreArgs = list(save_trimmed = save_trimmed))
+
+} else if (fastq_dataset == "PE") {
+    fastp_data <- parallel::mcmapply(fastp_pe, for_files, rev_files, 
+                                     SIMPLIFY = FALSE, 
+                                     MoreArgs = list(save_trimmed = save_trimmed))
+
+} else {
+    stop("something went wrong with fastp, check your fastq files!")
+}
+
+# move the data generated from fastp to results
+# html files to move, explicit to avoid moving something else
+htmlfiles <- paste(basename(fastqfiles), ".html", sep = "")
+jsonfiles <- paste(basename(fastqfiles), ".json", sep = "")
+trimmedfiles <- paste("trim_", basename(fastqfiles), sep = "")
+
+dir.create("01-fastqc-results/fastp_reports")
+
+file.rename(from = htmlfiles, to = paste("01-fastqc-results/fastp_reports/", htmlfiles, sep = ""))
+file.rename(from = jsonfiles, to = paste("01-fastqc-results/fastp_reports/", jsonfiles, sep = ""))
+if(isTRUE(save_trimmed)) {
+  dir.create("01-fastqc-results/trimmed-reads/")
+  file.rename(from = trimmedfiles, to = paste("01-fastqc-results/trimmed-reads/", trimmedfiles, sep = ""))
+}
+
+```
+
+
+```{r fastp_filter_table, include=TRUE}
+
+fastp_filter_stats <- map_df(fastp_data, `[[`, "filt", .id = "sample") %>% # good, eh?
+    rename_at(vars(ends_with("_reads")), 
+              ~str_remove(., "_reads")
+              ) 
+
+readr::write_delim(fastp_filter_stats, 
+                   path = file.path(resultsdir, "fastp_filter_stats.tsv"), 
+                   delim = "\t")
+fastp_filter_stats %>%
+  DT::datatable(filter = "top",
+                caption = paste("Results of fastp filtering with default parameters"),
+                extensions = c('Scroller', 'Buttons'),
+                options = list(dom= "Btp", deferRender = TRUE,
+                               scrollY = 400,
+                               scroller = TRUE, 
+                               buttons = c('copy', 'csv', 'excel')),
+                style = 'bootstrap',
+                class = 'table-hover table-condensed') %>%
+  formatRound('passed_filter', digits = 0, mark = ",")
+  #formatStyle('num_seqs', background = styleColorBar(data = c(0, max(read_qual$num_seqs)), "lightgreen"))
+
+```
+
+### Read duplication
+
+
+### Per cycle quality and base content
+
+
+
+### GC-content of reads
+
+
+The raw GC content data used for the plots can be found in the ` `r basename(resultsdir)` ` folder.
+
+
+
+```{r gc_content}
+# make gc plots for the for_files only
+# gc_stats is defined in bin/gc_stats.R
+source("bin/gc_stats.R")
+
+
+gcdf <- gc_stats(for_files)
+readr::write_delim(gcdf, path = file.path(resultsdir, "gc_content_stats.tsv"))
+
+# make also per sample df?
+# gcdf %>% mutate(sample = stringr::str_remove(readname, "_R._001.fastq.gz"))
+
+# prepare colors for the plots
+colfun <- scales::colour_ramp(c("lightgreen", "green", "orange","red", "violet"))
+gcdf2 <- gcdf %>%
+  group_by(readname) %>%
+  slice(which.max(counts)) %>%
+  mutate(mycolor = colfun(mids))
+
+```
+
+
+
+```{r, include=TRUE}
+
+# GC plot counts
+# gc_stats_apexplot() is defined in R/gc_stats.r
+
+gcdf %>%
+  gc_stats_apexplot(x = mids, y = counts, group = readname, width = "800", height = "400") %>%
+  ax_colors(gcdf2$mycolor) %>%
+  ax_legend(position = "right")
+
+```
+
+
+
+
+```{r, include=TRUE}
+
+# GC plot ax_plot percents
+# gc_stats_apexplot() is defined in R/gc_stats.r
+gcdf %>%
+  gc_stats_apexplot(x = mids, y = percents, group = readname, width = "800", height = "400") %>%
+  ax_colors(gcdf2$mycolor) %>%
+  ax_legend(position = "right")
+
+```
+
+
+
+***
+
+### Software versions
+
+```{r, include=TRUE}
+
+packages <- c("dplyr", "purrr", "tidyr", "readr", "stringr", "apexcharter", "DT", "parallel", "qckitfastq", "kableExtra", "readxl", "data.table")
+sessioninfo::package_info(packages, dependencies = FALSE)
+
+```
