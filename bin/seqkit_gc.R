@@ -6,7 +6,13 @@
 
 # input - a vector with fastq file names
 # output - a dataframe with file names and gc hist data
-seqkit_gc <- function(fastqfiles) {
-  
-  
+
+require(dplyr)
+
+seqkit_gc <- function(x) {
+  system2("seqkit", args = c("fx2tab", "-g", x, "| cut -f 4"), stdout = TRUE) %>%
+    as.numeric() %>%
+    # actually use density() here, not hist(). It returns a density list object with x and y, x is fixed from 1 to 100
+    density(from = 1, to = 100, n = 100, na.rm = TRUE) # n is the number of equally spaced points at which the density is to be estimated.
+    #hist(plot = FALSE, breaks = c(0:100))
 }

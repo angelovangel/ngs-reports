@@ -67,6 +67,7 @@ knitr::opts_chunk$set(include = FALSE,
 source("bin/check_install.R")
 source("bin/process_samplesheet.R")
 source("bin/seqkit_stats.R") # for general stats and gc stats
+source("bin/seqkit_gc.R")
 source("bin/fastp_stats.R") # 
 
 #-----------------------------------------
@@ -253,7 +254,7 @@ seqkit_stats_data %>%
 
 
 ### `fastp` filtering
-All fastq reads are processed with `fastp`, the individual report files can be found in the ` `r paste(basename(resultsdir), "/fastp_reports", sep ="")` ` directory. The values in the table below are per sample, e.g. for both R1 and R2 in case of PE data.
+All fastq reads are processed with `fastp`, the individual report files can be found in the ` `r paste(basename(resultsdir), "/fastp_reports", sep ="")` ` directory. The values in the table below are per sample, e.g. for both R1 and R2 together in case of PE data.
 
 ```{r fastp_exec}
 
@@ -339,7 +340,7 @@ fastp_filter_stats %>%
 
 ### Read duplication
 
-The duplication level is shown as percent reads at each duplication level (the first 20 shown).
+The duplication level is shown as percent reads at each duplication level (the first 20 levels shown).
 
 ```{r read_dup, include=TRUE, fig.width=10}
 # get data as matrix from fastp_data, to construct a heatmap
@@ -354,18 +355,20 @@ d3heatmap(fastp_dup*100, Rowv = F, Colv = F, colors = "YlOrRd", show_grid = 2)
 
 ```
 
-### Per cycle quality and base content
-
-
 
 ### GC-content of reads
 
-
-The raw GC content data used for the plots can be found in the ` `r basename(resultsdir)` ` folder.
-
+The GC-content of the reads in a sample is calculated by obtaining the GC-content of every read in the sample (`seqkit`), and applying the `hist` function in `R` to obtain the density values for 100 bins (from 1 to 100 °C, 1°C intervals). The raw GC content data used for the plots can be found in the ` `r basename(resultsdir)` ` folder.
 
 
-```{r gc_content}
+
+```{r gc_content, include=TRUE, fig.width=10}
+# get the list object from seqkit_gc
+seqkit_gc_data <- parallel::mclapply(for_files, seqkit_gc)
+
+gc_matrix <- map_df(seqkit_gc_data, `[[`, "density", .id = "sample") %>% t()
+
+gc_matrix %>% d3heatmap::d3heatmap(Rowv = F, Colv = F, colors = "YlOrRd", show_grid = F)
 ```
 
 
@@ -375,7 +378,6 @@ The raw GC content data used for the plots can be found in the ` `r basename(res
 
 ```{r, include=TRUE}
 
-packages <- pckgs
-sessioninfo::package_info(packages, dependencies = FALSE)
+sessioninfo::package_info(pckgs, dependencies = FALSE)
 
 ```
