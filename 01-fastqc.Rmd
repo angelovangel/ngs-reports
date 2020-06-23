@@ -358,7 +358,7 @@ d3heatmap(fastp_dup*100, Rowv = F, Colv = F, colors = "YlOrRd", show_grid = 2)
 
 ### GC-content of reads
 
-The GC-content of the reads in a sample is calculated by obtaining the GC-content of every read in the sample (`seqkit`), and applying the `hist` function in `R` to obtain the density values for 100 bins (from 1 to 100 °C, 1°C intervals). The raw GC content data used for the plots can be found in the ` `r basename(resultsdir)` ` folder.
+The GC-content of the reads in a sample is calculated by obtaining the GC-content of every read in the sample (`seqkit`), and applying the `density()` function in `R` to obtain the density values for 100 bins (from 1 to 100 °C, 1°C intervals). The raw GC content data used for the plots can be found in the ` `r basename(resultsdir)` ` folder.
 
 
 
@@ -366,7 +366,7 @@ The GC-content of the reads in a sample is calculated by obtaining the GC-conten
 # get the list object from seqkit_gc
 seqkit_gc_data <- parallel::mclapply(for_files, seqkit_gc)
 
-gc_matrix <- map_df(seqkit_gc_data, `[[`, "density", .id = "sample") %>% t()
+gc_matrix <- map_df(seqkit_gc_data, `[[`, "y", .id = "sample") %>% t()
 
 gc_matrix %>% d3heatmap::d3heatmap(Rowv = F, Colv = F, colors = "YlOrRd", show_grid = F)
 ```
