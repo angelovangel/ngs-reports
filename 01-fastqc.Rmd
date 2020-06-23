@@ -375,7 +375,6 @@ The raw GC content data used for the plots can be found in the ` `r basename(res
 
 ```{r, include=TRUE}
 
-packages <- pckgs
-sessioninfo::package_info(packages, dependencies = FALSE)
+sessioninfo::package_info(pckgs, dependencies = FALSE)
 
 ```
