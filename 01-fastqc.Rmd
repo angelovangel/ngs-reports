@@ -67,7 +67,7 @@ knitr::opts_chunk$set(include = FALSE,
 source("bin/check_install.R")
 source("bin/process_samplesheet.R")
 source("bin/seqkit_stats.R") # for general stats and gc stats
-source("bin/seqkit_gc.R")
+source("bin/seqkit_fx2tab.R")
 source("bin/fastp_stats.R") # 
 
 #-----------------------------------------
@@ -131,21 +131,6 @@ names(fastqfiles) <- basename(fastqfiles)
         stop("No fastq files found in supplied directory")
   }
 
-# determine if the dataset is PE or SE, get for and rev files
-
-
- for_files <- fastqfiles[str_detect(fastqfiles, "_R1_")] # if SE, then these are the same as fastqfiles
- rev_files <- fastqfiles[str_detect(fastqfiles, "_R2_")]
- 
- if(length(for_files) == length(fastqfiles)) {
-   fastq_dataset <- "SE"
- } else if(length(for_files) == length(rev_files)) {
-   fastq_dataset <- "PE"
- } else {
-   stop("Data seems PE but different number of R1 and R2 files")
- }
-#---------------------------------------------------------------
- 
 # determine plot height for the next figures: 20px per sample?
 myfig.height <- if_else(length(fastqfiles) > 17, true = length(fastqfiles)*3, false = 10)
 
@@ -198,9 +183,29 @@ This report includes data about the sample input QC as well as some sequencing m
 
 
 ```{r seqkit_stats}
+
 seqkit_stats_data <- seqkit_stats(fastqfiles)
 total_reads <- sum(seqkit_stats_data$num_seqs,na.rm = T) %>% si_fmt()
 total_bases <- sum(seqkit_stats_data$sum_len, na.rm = T) %>% si_fmt()
+
+# determine if the dataset is PE or SE, get for and rev files
+
+ for_files <- fastqfiles[str_detect(fastqfiles, "_R1_")] # if SE, then these are the same as fastqfiles
+ rev_files <- fastqfiles[str_detect(fastqfiles, "_R2_")]
+ 
+ # determine how fastp is run later, determine dataset type
+ if(length(for_files) == length(fastqfiles)) {
+   fastp_mode <- "se"
+   fastq_dataset <- paste("SE ", "(1 x ", round(mean(seqkit_stats_data$avg_len), digits = 0), ")", sep = "")
+ } else if(length(for_files) == length(rev_files)) {
+   fastp_mode <- "pe"
+   fastq_dataset <- paste("PE ", "(2 x ", round(mean(seqkit_stats_data$avg_len), digits = 0), ")", sep = "")
+ } else {
+   stop("Data seems PE but different number of R1 and R2 files")
+ }
+#---------------------------------------------------------------
+ 
+
 
 # write this table
 readr::write_delim(seqkit_stats_data, 
@@ -213,7 +218,7 @@ readr::write_delim(seqkit_stats_data,
 
 Dataset type: **`r fastq_dataset`**
 
-Number of fastq files: **`r length(fastqfiles)`** 
+FASTQ files: **`r length(fastqfiles)`** 
 
 Total reads: **`r total_reads`**
 
@@ -273,12 +278,12 @@ if (params$fastp_trimming == "Yes") {
 
 
 # SE case, fastq_dataset is defined in the setup section
-if(fastq_dataset == "SE") {
+if(fastp_mode == "se") {
     fastp_data <- parallel::mcmapply(fastp_se, fastqfiles, 
                                      SIMPLIFY = FALSE, 
                                      MoreArgs = list(save_trimmed = save_trimmed))
 
-} else if (fastq_dataset == "PE") {
+} else if (fastp_mode == "pe") {
     fastp_data <- parallel::mcmapply(fastp_pe, for_files, rev_files, 
                                      SIMPLIFY = FALSE, 
                                      MoreArgs = list(save_trimmed = save_trimmed))
@@ -358,7 +363,7 @@ d3heatmap(fastp_dup*100, Rowv = F, Colv = F, colors = "YlOrRd", show_grid = 2)
 
 ### GC-content of reads
 
-The GC-content of the reads in a sample is calculated by obtaining the GC-content of every read in the sample (`seqkit`), and applying the `density()` function in `R` to obtain the density values for 100 bins (from 1 to 100 °C, 1°C intervals). The raw GC content data used for the plots can be found in the ` `r basename(resultsdir)` ` folder.
+The GC-content of the reads in a sample is calculated by obtaining the GC-content of every read in the sample (`seqkit`), and applying the `density()` function in `R` to obtain the density values for 100 bins (from 1 to 100 °C, 1°C intervals). While some spreading of the GC-content within a sample can be expected, samples from the same organism should have a very similar GC-profile. The raw GC content data used for the plots can be found in the ` `r basename(resultsdir)` ` folder.
 
 
 
