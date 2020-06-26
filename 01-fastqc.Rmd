@@ -87,8 +87,8 @@ si_fmt <- function(x) {
 # Check required packages and install
 #-----------------------------------------
 # CRAN packages
-pckgs <- c("yaml", "dplyr", "purrr", "tidyr", "readr", "stringr", "apexcharter", "DT", "parallel",
-           "kableExtra", "readxl", "data.table", "d3heatmap")
+pckgs <- c("yaml", "dplyr", "purrr", "tidyr", "readr", "stringr", "DT", "parallel",
+           "kableExtra", "readxl", "data.table", "heatmaply")
 
 # Bioconductor packages
 # bc_pckgs <- c("qckitfastq")
@@ -360,7 +360,7 @@ fastp_filter_stats %>%
 
 The duplication level is shown as percent reads at each duplication level (the first 20 levels shown).
 
-```{r read_dup, include=TRUE, fig.width=10}
+```{r read_dup, include=TRUE, out.width="100%"}
 # get data as matrix from fastp_data, to construct a heatmap
 fastp_dup <- map_df(fastp_data, `[[`, "dup", .id = "sample") %>% 
   head(20) %>%
@@ -369,7 +369,10 @@ fastp_dup <- map_df(fastp_data, `[[`, "dup", .id = "sample") %>%
   t()
 
 rownames(fastp_dup) <- rownames(fastp_dup) %>% basename() %>% str_remove(params$fastq_pattern)
-d3heatmap(fastp_dup*100, Rowv = F, Colv = F, colors = "YlOrRd", show_grid = 2)
+heatmaply(fastp_dup*100, 
+          Rowv = NA, Colv = NA, 
+          colors = heat.colors(100, rev = TRUE), 
+          grid_gap = FALSE, dynamicTicks = TRUE, hide_colorbar = TRUE)
 
 ```
 
@@ -380,14 +383,17 @@ The GC-content of the reads in a sample is calculated by obtaining the GC-conten
 
 
 
-```{r gc_content, include=TRUE, fig.width=10}
+```{r gc_content, include=TRUE, out.width="100%"}
 # get the list object from seqkit_gc
 seqkit_gc_data <- parallel::mclapply(for_files, seqkit_gc)
 
 gc_matrix <- map_df(seqkit_gc_data, `[[`, "y", .id = "sample") %>% t()
 rownames(gc_matrix) <- rownames(gc_matrix) %>% basename() %>% str_remove(params$fastq_pattern)
 
-gc_matrix %>% d3heatmap::d3heatmap(Rowv = F, Colv = F, colors = "YlOrRd", show_grid = F)
+gc_matrix %>% 
+  heatmaply(Rowv = NA, Colv = NA, 
+            colors = heat.colors(100, rev = TRUE), 
+            grid_gap = FALSE, dynamicTicks = TRUE, hide_colorbar = TRUE)
 ```
 
 
