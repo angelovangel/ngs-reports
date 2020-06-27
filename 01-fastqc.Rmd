@@ -26,8 +26,8 @@ params:
     value:
     input: file
   fastq_dir:
-    label: "Path to folder with fastq files (required, path relative to current folder)"
-    value: "path/to/fastq"
+    label: "Path to folder with fastq files (required, absolute path or relative to current folder)"
+    value: ""
     input: text
   fastq_pattern:
     label: "Regex to capture fastq files (and obtain sample names)"
@@ -53,6 +53,15 @@ params:
 div.blue { background-color:#e6f0ff;}
 </style>
 
+<div style="position:absolute;top:0px;right:0px;padding:0px;background-color:white;width:18%;">
+```{r, echo=FALSE}
+
+knitr::include_graphics("img/NCCT_Logo_RGB.png")
+mybluecolor <- "#e6f0ff"
+
+```
+</div>
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(include = FALSE, 
                       echo = FALSE, 
@@ -64,10 +73,11 @@ knitr::opts_chunk$set(include = FALSE,
 # R_PATH="PATH=$PATH"  
 # echo $R_PATH >  ~/.Renviron
 
+# IMPROVE SOURCING WITH here()
 source("bin/check_install.R")
 source("bin/process_samplesheet.R")
 source("bin/seqkit_stats.R") # for general stats and gc stats
-source("bin/seqkit_gc.R")
+source("bin/seqkit_fx2tab.R")
 source("bin/fastp_stats.R") # 
 
 #-----------------------------------------
@@ -80,8 +90,8 @@ si_fmt <- function(x) {
 # Check required packages and install
 #-----------------------------------------
 # CRAN packages
-pckgs <- c("yaml", "dplyr", "purrr", "tidyr", "readr", "stringr", "apexcharter", "DT", "parallel",
-           "kableExtra", "readxl", "data.table", "d3heatmap")
+pckgs <- c("yaml", "dplyr", "purrr", "tidyr", "readr", "stringr", "DT", "parallel",
+           "kableExtra", "readxl", "data.table", "heatmaply", "sessioninfo")
 
 # Bioconductor packages
 # bc_pckgs <- c("qckitfastq")
@@ -118,6 +128,11 @@ fastqfiles <- list.files(fastqdir, pattern = params$fastq_pattern, full.names = 
 # make a named vector, this is where the read names come from later in the mcmapply calls!!!
 names(fastqfiles) <- basename(fastqfiles)
 
+# determine if the dataset is PE or SE, get for and rev files
+
+ for_files <- fastqfiles[str_detect(fastqfiles, "_R1")] # if SE, then these are the same as fastqfiles
+ rev_files <- fastqfiles[str_detect(fastqfiles, "_R2")]
+ 
 # define results dir, where everything goes
   resultsdir <- file.path(getwd(), "01-fastqc-results")
   if (dir.exists(resultsdir)) {
@@ -126,26 +141,11 @@ names(fastqfiles) <- basename(fastqfiles)
   dir.create(resultsdir)
 
 # stop early if no fastq files found
-  if (length(fastqfiles) == 0) {
+  if (length(fastqfiles) == 0 | length(for_files) == 0) {
         #
         stop("No fastq files found in supplied directory")
   }
 
-# determine if the dataset is PE or SE, get for and rev files
-
-
- for_files <- fastqfiles[str_detect(fastqfiles, "_R1_")] # if SE, then these are the same as fastqfiles
- rev_files <- fastqfiles[str_detect(fastqfiles, "_R2_")]
- 
- if(length(for_files) == length(fastqfiles)) {
-   fastq_dataset <- "SE"
- } else if(length(for_files) == length(rev_files)) {
-   fastq_dataset <- "PE"
- } else {
-   stop("Data seems PE but different number of R1 and R2 files")
- }
-#---------------------------------------------------------------
- 
 # determine plot height for the next figures: 20px per sample?
 myfig.height <- if_else(length(fastqfiles) > 17, true = length(fastqfiles)*3, false = 10)
 
@@ -198,9 +198,25 @@ This report includes data about the sample input QC as well as some sequencing m
 
 
 ```{r seqkit_stats}
+
 seqkit_stats_data <- seqkit_stats(fastqfiles)
 total_reads <- sum(seqkit_stats_data$num_seqs,na.rm = T) %>% si_fmt()
 total_bases <- sum(seqkit_stats_data$sum_len, na.rm = T) %>% si_fmt()
+
+ 
+ # determine how fastp is run later, determine dataset type
+ if(length(for_files) == length(fastqfiles)) {
+   fastp_mode <- "se"
+   fastq_dataset <- paste("SE ", "(1 x ", round(mean(seqkit_stats_data$avg_len), digits = 0), ")", sep = "")
+ } else if(length(for_files) == length(rev_files)) {
+   fastp_mode <- "pe"
+   fastq_dataset <- paste("PE ", "(2 x ", round(mean(seqkit_stats_data$avg_len), digits = 0), ")", sep = "")
+ } else {
+   stop("Data seems PE but different number of R1 and R2 files")
+ }
+#---------------------------------------------------------------
+ 
+
 
 # write this table
 readr::write_delim(seqkit_stats_data, 
@@ -213,7 +229,7 @@ readr::write_delim(seqkit_stats_data,
 
 Dataset type: **`r fastq_dataset`**
 
-Number of fastq files: **`r length(fastqfiles)`** 
+FASTQ files: **`r length(fastqfiles)`** 
 
 Total reads: **`r total_reads`**
 
@@ -232,20 +248,26 @@ basic_stats_header <- paste("Number of reads and quality metrics")
 
   
 seqkit_stats_data %>% 
-  dplyr::mutate(num_sequences = si_fmt(num_seqs), num_bases = si_fmt(sum_len)) %>%
-  dplyr::select(c(file, num_seqs, num_sequences, sum_len, num_bases, sum_gap, "Q20(%)", "Q30(%)")) %>%
+  #dplyr::mutate(num_sequences = si_fmt(num_seqs), num_bases = si_fmt(sum_len)) %>%
+  dplyr::select(c(file, num_seqs, sum_len, sum_gap, "Q20(%)", "Q30(%)")) %>%
   DT::datatable(filter = "top",
                  caption = basic_stats_header,
                  extensions = c('Scroller', 'Buttons'),
                  options = list(dom= "Btp", deferRender = TRUE,
-                                scrollY = 400, scroller = TRUE, buttons = c('copy', 'csv', 'excel'),
-                                columnDefs = list(list(visible = FALSE, targets = c(2, 4)))),       # hide cols in DT
+                                scrollY = 600, scroller = TRUE, buttons = c('copy', 'csv', 'excel')
+                                #columnDefs = list(list(visible = FALSE, targets = c(2, 4))) # hide cols in DT
+                                ),
                  style = 'bootstrap',
                  class = 'table-hover table-condensed') %>%
-  formatStyle('num_sequences', valueColumns = 'num_seqs', 
-              background = styleColorBar(data = c(0, max(seqkit_stats_data$num_seqs)), "lightgreen")) %>%
-  formatStyle('num_bases', valueColumns = 'sum_len', 
-              background = styleColorBar(data = c(0, max(seqkit_stats_data$sum_len)), "lightgreen")) %>%
+  # formatStyle('num_sequences', valueColumns = 'num_seqs', 
+  #             background = styleColorBar(data = c(0, max(seqkit_stats_data$num_seqs)), "lightgreen")) %>%
+  # formatStyle('num_bases', valueColumns = 'sum_len', 
+  #             background = styleColorBar(data = c(0, max(seqkit_stats_data$sum_len)), "lightgreen")) %>%
+  formatRound('num_seqs', digits = 0, mark = ",") %>%
+  formatStyle('num_seqs', 
+              background = styleColorBar(data = c(0, max(seqkit_stats_data$num_seqs)), mybluecolor)
+              ) %>%
+  formatRound('sum_len', digits = 0, mark = ",") %>%
   formatStyle(c("Q20(%)", "Q30(%)"), color = styleInterval(c(0.8, 0.9), c("red", "orange", "green")))
 
 ```
@@ -273,12 +295,14 @@ if (params$fastp_trimming == "Yes") {
 
 
 # SE case, fastq_dataset is defined in the setup section
-if(fastq_dataset == "SE") {
+#IMPROVE MAPPLY FOR MANY PROC
+
+if(fastp_mode == "se") {
     fastp_data <- parallel::mcmapply(fastp_se, fastqfiles, 
                                      SIMPLIFY = FALSE, 
                                      MoreArgs = list(save_trimmed = save_trimmed))
 
-} else if (fastq_dataset == "PE") {
+} else if (fastp_mode == "pe") {
     fastp_data <- parallel::mcmapply(fastp_pe, for_files, rev_files, 
                                      SIMPLIFY = FALSE, 
                                      MoreArgs = list(save_trimmed = save_trimmed))
@@ -323,7 +347,7 @@ fastp_filter_stats %>%
                 caption = paste("Results of fastp filtering with default parameters"),
                 extensions = c('Scroller', 'Buttons'),
                 options = list(dom= "Btp", deferRender = TRUE,
-                               scrollY = 400,
+                               scrollY = 600,
                                scroller = TRUE, 
                                buttons = c('copy', 'csv', 'excel') 
                                #columnDefs= list(list(visible = FALSE, targets = 2))
@@ -332,7 +356,7 @@ fastp_filter_stats %>%
                 class = 'table-hover table-condensed') %>%
   formatRound('passed_filter', digits = 0, mark = ",") %>%
   formatStyle('passed_filter', 
-              background = styleColorBar(data = c(0, max(fastp_filter_stats$passed_filter)), "lightgreen")
+              background = styleColorBar(data = c(0, max(fastp_filter_stats$passed_filter)), mybluecolor)
               )
   
 
@@ -342,33 +366,40 @@ fastp_filter_stats %>%
 
 The duplication level is shown as percent reads at each duplication level (the first 20 levels shown).
 
-```{r read_dup, include=TRUE, fig.width=10}
+```{r read_dup, include=TRUE, out.width="100%"}
 # get data as matrix from fastp_data, to construct a heatmap
-fastp_dup <- map_df(fastp_data, `[[`, "dup", .id = "sample") %>% 
+fastp_dup <- map_df(fastp_data, `[[`, "dup") %>% 
   head(20) %>%
   as.matrix() %>%
   prop.table(margin = 2) %>%
   t()
 
 rownames(fastp_dup) <- rownames(fastp_dup) %>% basename() %>% str_remove(params$fastq_pattern)
-d3heatmap(fastp_dup*100, Rowv = F, Colv = F, colors = "YlOrRd", show_grid = 2)
+heatmaply(fastp_dup*100, 
+          Rowv = NA, Colv = NA, 
+          colors = heat.colors(100, rev = TRUE), 
+          grid_gap = FALSE, dynamicTicks = TRUE, hide_colorbar = TRUE)
 
 ```
 
 
 ### GC-content of reads
 
-The GC-content of the reads in a sample is calculated by obtaining the GC-content of every read in the sample (`seqkit`), and applying the `density()` function in `R` to obtain the density values for 100 bins (from 1 to 100 °C, 1°C intervals). The raw GC content data used for the plots can be found in the ` `r basename(resultsdir)` ` folder.
+The GC-content of the reads in a sample is calculated by obtaining the GC-content of every read in the sample (`seqkit`), and applying the `density()` function in `R` to obtain the density values for 100 bins (from 1 to 100 °C, 1°C intervals). While some spreading of the GC-content within a sample can be expected, samples from the same organism should have a very similar GC-profile. The raw GC content data used for the plots can be found in the ` `r basename(resultsdir)` ` folder.
 
 
 
-```{r gc_content, include=TRUE, fig.width=10}
+```{r gc_content, include=TRUE, out.width="100%"}
 # get the list object from seqkit_gc
 seqkit_gc_data <- parallel::mclapply(for_files, seqkit_gc)
 
-gc_matrix <- map_df(seqkit_gc_data, `[[`, "y", .id = "sample") %>% t()
+gc_matrix <- map_df(seqkit_gc_data, `[[`, "y") %>% t()
+rownames(gc_matrix) <- rownames(gc_matrix) %>% basename() %>% str_remove(params$fastq_pattern)
 
-gc_matrix %>% d3heatmap::d3heatmap(Rowv = F, Colv = F, colors = "YlOrRd", show_grid = F)
+gc_matrix %>% 
+  heatmaply(Rowv = NA, Colv = NA, 
+            colors = heat.colors(100, rev = TRUE), 
+            grid_gap = FALSE, dynamicTicks = TRUE, hide_colorbar = TRUE)
 ```
 
 
