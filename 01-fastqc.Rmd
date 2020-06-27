@@ -26,8 +26,8 @@ params:
     value:
     input: file
   fastq_dir:
-    label: "Path to folder with fastq files (required, path relative to current folder)"
-    value: "path/to/fastq"
+    label: "Path to folder with fastq files (required, absolute path or relative to current folder)"
+    value: ""
     input: text
   fastq_pattern:
     label: "Regex to capture fastq files (and obtain sample names)"
@@ -55,8 +55,10 @@ div.blue { background-color:#e6f0ff;}
 
 <div style="position:absolute;top:0px;right:0px;padding:0px;background-color:white;width:18%;">
 ```{r, echo=FALSE}
+
 knitr::include_graphics("img/NCCT_Logo_RGB.png")
 mybluecolor <- "#e6f0ff"
+
 ```
 </div>
 
@@ -71,6 +73,7 @@ knitr::opts_chunk$set(include = FALSE,
 # R_PATH="PATH=$PATH"  
 # echo $R_PATH >  ~/.Renviron
 
+# IMPROVE SOURCING WITH here()
 source("bin/check_install.R")
 source("bin/process_samplesheet.R")
 source("bin/seqkit_stats.R") # for general stats and gc stats
@@ -88,7 +91,7 @@ si_fmt <- function(x) {
 #-----------------------------------------
 # CRAN packages
 pckgs <- c("yaml", "dplyr", "purrr", "tidyr", "readr", "stringr", "DT", "parallel",
-           "kableExtra", "readxl", "data.table", "heatmaply")
+           "kableExtra", "readxl", "data.table", "heatmaply", "sessioninfo")
 
 # Bioconductor packages
 # bc_pckgs <- c("qckitfastq")
@@ -125,6 +128,11 @@ fastqfiles <- list.files(fastqdir, pattern = params$fastq_pattern, full.names = 
 # make a named vector, this is where the read names come from later in the mcmapply calls!!!
 names(fastqfiles) <- basename(fastqfiles)
 
+# determine if the dataset is PE or SE, get for and rev files
+
+ for_files <- fastqfiles[str_detect(fastqfiles, "_R1")] # if SE, then these are the same as fastqfiles
+ rev_files <- fastqfiles[str_detect(fastqfiles, "_R2")]
+ 
 # define results dir, where everything goes
   resultsdir <- file.path(getwd(), "01-fastqc-results")
   if (dir.exists(resultsdir)) {
@@ -133,7 +141,7 @@ names(fastqfiles) <- basename(fastqfiles)
   dir.create(resultsdir)
 
 # stop early if no fastq files found
-  if (length(fastqfiles) == 0) {
+  if (length(fastqfiles) == 0 | length(for_files) == 0) {
         #
         stop("No fastq files found in supplied directory")
   }
@@ -195,10 +203,6 @@ seqkit_stats_data <- seqkit_stats(fastqfiles)
 total_reads <- sum(seqkit_stats_data$num_seqs,na.rm = T) %>% si_fmt()
 total_bases <- sum(seqkit_stats_data$sum_len, na.rm = T) %>% si_fmt()
 
-# determine if the dataset is PE or SE, get for and rev files
-
- for_files <- fastqfiles[str_detect(fastqfiles, "_R1_")] # if SE, then these are the same as fastqfiles
- rev_files <- fastqfiles[str_detect(fastqfiles, "_R2_")]
  
  # determine how fastp is run later, determine dataset type
  if(length(for_files) == length(fastqfiles)) {
@@ -250,7 +254,7 @@ seqkit_stats_data %>%
                  caption = basic_stats_header,
                  extensions = c('Scroller', 'Buttons'),
                  options = list(dom= "Btp", deferRender = TRUE,
-                                scrollY = 400, scroller = TRUE, buttons = c('copy', 'csv', 'excel')
+                                scrollY = 600, scroller = TRUE, buttons = c('copy', 'csv', 'excel')
                                 #columnDefs = list(list(visible = FALSE, targets = c(2, 4))) # hide cols in DT
                                 ),
                  style = 'bootstrap',
@@ -291,6 +295,8 @@ if (params$fastp_trimming == "Yes") {
 
 
 # SE case, fastq_dataset is defined in the setup section
+#IMPROVE MAPPLY FOR MANY PROC
+
 if(fastp_mode == "se") {
     fastp_data <- parallel::mcmapply(fastp_se, fastqfiles, 
                                      SIMPLIFY = FALSE, 
@@ -341,7 +347,7 @@ fastp_filter_stats %>%
                 caption = paste("Results of fastp filtering with default parameters"),
                 extensions = c('Scroller', 'Buttons'),
                 options = list(dom= "Btp", deferRender = TRUE,
-                               scrollY = 400,
+                               scrollY = 600,
                                scroller = TRUE, 
                                buttons = c('copy', 'csv', 'excel') 
                                #columnDefs= list(list(visible = FALSE, targets = 2))
@@ -362,7 +368,7 @@ The duplication level is shown as percent reads at each duplication level (the f
 
 ```{r read_dup, include=TRUE, out.width="100%"}
 # get data as matrix from fastp_data, to construct a heatmap
-fastp_dup <- map_df(fastp_data, `[[`, "dup", .id = "sample") %>% 
+fastp_dup <- map_df(fastp_data, `[[`, "dup") %>% 
   head(20) %>%
   as.matrix() %>%
   prop.table(margin = 2) %>%
@@ -387,7 +393,7 @@ The GC-content of the reads in a sample is calculated by obtaining the GC-conten
 # get the list object from seqkit_gc
 seqkit_gc_data <- parallel::mclapply(for_files, seqkit_gc)
 
-gc_matrix <- map_df(seqkit_gc_data, `[[`, "y", .id = "sample") %>% t()
+gc_matrix <- map_df(seqkit_gc_data, `[[`, "y") %>% t()
 rownames(gc_matrix) <- rownames(gc_matrix) %>% basename() %>% str_remove(params$fastq_pattern)
 
 gc_matrix %>% 
