@@ -183,6 +183,14 @@ myfig.height <- if_else(length(fastqfiles) > 17, true = length(fastqfiles)*30, f
 ```
 *Report generated on `r Sys.time()` by `r params$author` on `r Sys.info()[4]`*
 
+<div style="position:absolute;top:0px;right:0px;padding:0px;background-color:white;width:18%;">
+```{r, echo=FALSE}
+
+knitr::include_graphics("img/NCCT_Logo_RGB.png")
+mybluecolor <- "#e6f0ff"
+
+```
+</div>
 
 <style>
 div.blue { background-color:#e6f0ff;}
@@ -377,20 +385,20 @@ Alignment of reads to the genome was performed with `Rsubread::align()`.
 ```{r step3_align}
 # In this step, the fastq files found in the supplied directory are aligned to the reference index which was built in step 1.
 # In case this step was performed before, it is skipped.
-# The BAM files produced are found in the same folder as the fastq files.
+#
 
 align_summary_names_SE <- c("Total_reads", "Mapped_reads", "Uniquely_mapped_reads","Multi_mapping_reads", "Unmapped_reads", "Indels")
 align_summary_names_PE <- c("Total_fragments", "Mapped_fragments", "Uniquely_mapped_fragments", "Multi_mapping_fragments", "Unmapped_fragments", "Properly_paired_fragments", "Singleton_fragments", "More_than_one_chr_fragments", "Unexpected_strandness_fragments", "Unexpected_template_length", "Inversed_mapping", "Indels")
 
 # in case there are bam files already..
-bamfiles <- list.files(align_outdir, pattern = "subread.BAM$", full.names = TRUE)
+bamfiles <- list.files(align_outdir, pattern = ".bam$", full.names = TRUE)
 
 
 # character vector with output file names, redirects output to resultsdir/bamfiles
 # for SE - bam files take the names from for_files, these are all fastq files (and have _R1_)
 # for PE - bam files take the names from for_files
 align_outfiles <- file.path(align_outdir, 
-                            paste(tools::file_path_sans_ext(basename(for_files)), ".subread.BAM", sep = ""))
+                            paste(tools::file_path_sans_ext(basename(for_files)), ".bam", sep = ""))
 
   if (!is.null(params$fastq_dir)) {
 
@@ -436,7 +444,7 @@ align_outfiles <- file.path(align_outdir,
         
         # because performing align() for the first time, assign bamfiles again and save rds
         saveRDS(align_summary, file = file.path(align_outdir, "align_summary.rds"))
-        bamfiles <- list.files(align_outdir, pattern = "BAM$", full.names = TRUE)
+        bamfiles <- list.files(align_outdir, pattern = "*.bam$", full.names = TRUE)
 
         alignresult <- paste(length(fastqfiles),
                              "fastq files were found, performing alignment.")
@@ -473,7 +481,7 @@ From a total of
 could be mapped to the genome, and   
 **`r format(unique_mapped_fragments, digits = 0, big.mark = ",")` (`r format(unique_mapped_fragments_percentoftotal, nsmall = 2, digits = 2)` %)**
 could be mapped uniquely to the genome.    
-More detailed data about the mapping quality of each library can be found in the ` `r params$fastq_dir` ` folder.
+More detailed data about the mapping quality of each library can be found in the ` `r resultsdir` ` folder.
 
 
 ```{r align_summary}
@@ -481,7 +489,7 @@ align_summary_table <- t(align_summary) %>%
   as_tibble(rownames = "Sample") %>%
   dplyr::select(c(1,4:6)) %>%
   mutate(Sample = str_remove(string = Sample,
-                             pattern = ".R(1|2).001.*fastq.gz.subread.BAM"))
+                             pattern = ".R(1|2).001.*fastq.bam"))
 
 # alignment plots initialisation, no plotting here
 align_plot <- align_summary_table %>%
@@ -577,7 +585,7 @@ fc_stats <- fc$stat[,-1] %>%
   rename_all(.funs = ~fc$stat[,1]) %>%
   mutate(Sample = fc$targets) %>%
   mutate(Sample = str_remove(string = Sample,
-                             pattern = ".R(1|2).001.*fastq.gz.subread.BAM")) %>%
+                             pattern = ".R(1|2).001.*fastq.bam")) %>%
   dplyr::select_if(~ !is.numeric(.) || sum(.) != 0 ) # this removes vars with only 0s, but keeps non-numeric vars
 ####################################
 
@@ -687,7 +695,7 @@ source("bin/rseqc_read_duplication.R")
   
   dupratedf_mod <- dupratedf %>% 
     mutate(samplename = str_remove(flnm, pattern = "_R(1|2)_001.*"), 
-           duptype = str_extract(flnm, "(?<=BAM.)seq|(?<=BAM.)pos"),
+           duptype = str_extract(flnm, "(?<=fastq.bam.)seq|(?<=fastq.bam.)pos"),
            Sample = paste(samplename, duptype)) %>%
     group_by(flnm, duptype) %>% 
     mutate(fraction = UniqReadNumber/sum(UniqReadNumber))
@@ -727,7 +735,7 @@ duprate_plot <- dupratedf_mod %>%
 
 
 <div class = "col-md-12">
-```{r, include=FALSE} 
+```{r, include=TRUE} 
 # not included for now
 duprate_plot %>%
   ax_labs(title = "Reads duplication rate based on sequence (seq) and mapping (pos)", 
@@ -738,7 +746,7 @@ duprate_plot %>%
 </div>
 
 
-The same duplication rate data as above, showing only occurrences 1 to 10.
+Duplication rate, shown are only occurrences 1 to 10.
 
 ```{r, include=TRUE}
 dupratedf_mod %>% 
@@ -865,7 +873,7 @@ genebody_outfiles_txt <- list.files(path = genebody_outdir, pattern = ".covdata$
 # read one geneBodyCoverage.txt file and return a df
 read_genebody <- function(x) {
   fread(x) %>% 
-    mutate(filename = basename(x) %>% str_extract(pattern = "^\\w+"),
+    mutate(filename = basename(x) %>% str_remove(pattern = ".fastq.bam.covdata"), 
            percentile_rank = percent_rank(coverage))
 }
 

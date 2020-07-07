@@ -146,8 +146,9 @@ names(fastqfiles) <- basename(fastqfiles)
         stop("No fastq files found in supplied directory")
   }
 
-# determine plot height for the next figures: 20px per sample?
-myfig.height <- if_else(length(fastqfiles) > 17, true = length(fastqfiles)*3, false = 10)
+
+myfig.height <- if_else(length(fastqfiles) > 17, true = length(fastqfiles)*30, false = 350)
+
 
 ```
 *Report generated on `r Sys.time()` by `r Sys.info()[8]` on `r Sys.info()[4]`*
