@@ -27,10 +27,10 @@ conda env create -f environment.yml
 
 and then activate it with:
 ```
-conda activate ngs-reports-0.1
+conda activate ngs-reports
 ```
 
-Start Rstudio: on Linux `rstudio`, on MacOS `open -na Rstudio`
+Start RStudio: on Linux `rstudio`, on MacOS `open -na Rstudio`. Check that the `$PATH` is set correctly in RStudio - `Sys.getenv("PATH")` should give the same as `echo $PATH` on the command line.
 
 ***
 
