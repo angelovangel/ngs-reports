@@ -7,10 +7,10 @@ name: ngs-reports
 channels:
   #- defaults
   - bioconda
-  - defaults
+  - conda-forge
   
 dependencies:
-  - rseqc=3.0.1
+  - rseqc=3.0.0
   - qualimap=2.2.2a
   - seqkit=0.11.0
   - gffread=0.11.6

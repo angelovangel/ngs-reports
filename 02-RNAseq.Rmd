@@ -75,7 +75,14 @@ knitr::opts_chunk$set(include = FALSE,
 # add the correct bash $PATH to the R session, depending on the system R may not have the correct $PATH
 # touch ~/.Renviron 
 # R_PATH="PATH=$PATH"  
-# echo $R_PATH >  ~/.Renviron
+# echo $R_PATH >>  ~/.Renviron
+
+# or better not to touch .Renviron, but set using a temp file:
+# on the CL
+# echo $PATH > temp
+# in R
+# Sys.setenv(PATH = readLines("temp"))
+# on my MAC, system(echo $PATH) from R started within a conda env does not give me the path of the env
 
 #------------------------------------------
 # Initialization, needed for all modules of this report
