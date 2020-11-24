@@ -44,12 +44,12 @@ params:
     input: select
   library_prep:
     label: "Library prep kit"
-    choices: ["Zymo-Seq RiboFree Total RNA", "NEBNext Ultra II RNA", "Swift"]
+    choices: ["Zymo-Seq RiboFree Total RNA", "NEBNext Ultra II RNA", "Illumina Stranded Total RNA Prep with Ribo-Zero Plus"]
     value: "Zymo-Seq RiboFree Total RNA"
     input: select
   sequencer:
     label: "Sequencer"
-    choices: ["MiSeq", "NextSeq", "NovaSeq"]
+    choices: ["MiSeq", "iSeq", "NextSeq", "NovaSeq"]
     value: "NextSeq"
     input: select
   min_map_qual:
@@ -136,8 +136,13 @@ header_table <- data.frame(Parameter = c("Project",
 # define output directories and fastq files
 
 # important - normalizePath so that fastq files anywhere can be used
+# important - make symbolic links to the files, delete at the end, easier work later
 fastqdir <- normalizePath(params$fastq_dir)
-fastqfiles <- list.files(fastqdir, pattern = ".fast(q|q.gz)$", full.names = TRUE)
+file.symlink(fastqdir, "fastqlinks") # rm later
+fastqfiles <- list.files("fastqlinks", pattern = ".fast(q|q.gz)$", full.names = TRUE)
+
+
+
 
 # define results dir, where everything goes
   resultsdir <- file.path(getwd(), "02-RNAseq-results")
@@ -183,7 +188,7 @@ myfig.height <- if_else(length(fastqfiles) > 17, true = length(fastqfiles)*30, f
 ```
 *Report generated on `r Sys.time()` by `r params$author` on `r Sys.info()[4]`*
 
-<div style="position:absolute;top:0px;right:0px;padding:0px;background-color:white;width:18%;">
+<div style="position:absolute;top:5px;right:5px;padding:0px;background-color:white;width:20%;">
 ```{r, echo=FALSE}
 
 knitr::include_graphics("img/NCCT_Logo_RGB.png")
@@ -335,7 +340,7 @@ gcdf %>%
 ***
 
 ### Build genome index
-
+The fasta file used for mapping was 
 Using the supplied genome fasta file, this step generates the index files needed for alignment by `Rsubread::align()`.
 
 ```{r step01_index}
@@ -474,13 +479,15 @@ unique_mapped_fragments_percentofmapped <- unique_mapped_fragments/mapped_fragme
 
 ```
 
+<div class = "blue">
 The `r params$seqtype` dataset has **`r format(sum(read_qual$num_seqs)/1e6, digits = 2, big.mark = ",")`M** reads with **`r format(sum(read_qual$sum_len)/1e6, digits = 0, big.mark = ",")`M** bases.   
 From a total of   
 **`r format(total_fragments, digits = 0, big.mark = ",")`** fragments   
 **`r format(mapped_fragments, digits=0, big.mark=",")` (`r format(mapped_fragments_percent, nsmall = 2, digits = 2)` %)**
 could be mapped to the genome, and   
 **`r format(unique_mapped_fragments, digits = 0, big.mark = ",")` (`r format(unique_mapped_fragments_percentoftotal, nsmall = 2, digits = 2)` %)**
-could be mapped uniquely to the genome.    
+could be mapped uniquely to the genome.  
+</div>
 More detailed data about the mapping quality of each library can be found in the ` `r resultsdir` ` folder.
 
 
@@ -911,6 +918,8 @@ genebody_df %>%
 ### Software versions
 
 ```{r, include=TRUE}
+# cleanup
+unlink("fastqlinks", recursive = TRUE, force = TRUE)
 
 packages <- c("Rsubread", "dplyr", "purrr", "tidyr", "readr", "stringr", "apexcharter", "DT", "parallel", "qckitfastq", "kableExtra", "readxl", "data.table")
 sessioninfo::package_info(packages, dependencies = FALSE)

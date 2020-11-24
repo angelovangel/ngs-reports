@@ -44,7 +44,7 @@ gc_stats_apexplot <- function(gc_stats_df, x, y, group, width = "500", height = 
          height = height, 
          width = width) %>% 
     ax_stroke(width = 1.5, curve = "smooth") %>% 
-    ax_yaxis(decimalsInFloat = 0) %>% 
+    #ax_yaxis(decimalsInFloat = 0) %>% 
     ax_xaxis(tickAmount = 5) %>%
     ax_tooltip(
       enabled = TRUE, 
