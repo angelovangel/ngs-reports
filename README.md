@@ -18,6 +18,7 @@ The required `R` packages will be installed if they are not available when you f
 - [`gffread`]()
 - [`qualimap`]()
 
+
 ## Using `conda`
 You can also use the `environment.yml` file to create a conda environment with the required tools, and then start Rstudio in that environment:
 
@@ -42,5 +43,6 @@ This template generates some quality metrics about a bunch of fastq files - tota
 
 ## RNAseq report   
 In addition to the FASTQ quality metrics, this template generates also: alignment quality of the reads to the reference genome, summarization metrics of the assignment of the reads to genome features, duplication rate, read strandness, gene body coverage.
+IMPORTANT - if using prokka for annotation, remove the "|" from both the fasta header and from the gff files!!! Otherwise `Rsubread` will fail.
 
 ***
